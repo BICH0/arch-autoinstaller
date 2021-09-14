@@ -39,8 +39,8 @@ EOF
  installed="\e[1;32m[INSTALLED]\e[m"
  ##CONST
  discos=$(ls /dev/?d?)
- basepack=('base' 'linux' 'linux-firmware' 'nano' 'wget')
- bichopack=('dhcpcd' 'sudo' 'git' 'iftop' 'neovim' 'conky')
+ basepack=('base' 'linux' 'linux-firmware' 'nano' 'wget' 'sudo')
+ bichopack=('dhcpcd' 'git' 'iftop' 'neovim' 'conky')
  displayservers=('xorg')
  desktops=('xfce4' 'gnome' 'cinnamon' 'plasma' 'mate')
  dms=('lightdm')
@@ -53,7 +53,7 @@ EOF
  empty_lines () {
    clear
    echo ""
-   echo "-----------------------------------------------------------------------------------------------------"
+   echo "--------------------------------------------------------------------------------------------------"
  }
 discos_conectados () {
 		echo ""
@@ -95,6 +95,10 @@ locales_list () {
     ((i=i+1))
   done
 }
+pacman_func () {
+  packages=("$@")
+  arch-chroot /mnt pacman -S --noconfirm $packages 1>/dev/null
+}
 install_package () {
   name=$1 && shift
   cstname=$1 && shift
@@ -126,7 +130,7 @@ install_package () {
       done
       read ipr2
     done
-    pacman -S ${ipr2}
+    pacman_func "${ipr2}"
   elif [[ ${iarr[${ipr1}]} == ${iarr[-1]} ]]
   then
     :
@@ -451,6 +455,11 @@ do
   rcomp=$(fdisk -l /dev/${rootp} 2>/dev/null)
 done
 mount /dev/${rootp} /mnt 2>/dev/null
+clear
+echo -n "Instalando kernel "
+pacstrap /mnt ${basepack[@]} 1>/dev/null
+echo -e "${ok}"
+sleep 2
 until [[ $part == f ]] || [[ $part == F ]]
 do
   empty_lines
@@ -458,6 +467,7 @@ do
   echo "sda2 /boot/efi"
   echo "Utilize (F)in para no montar mas unidades."
   read part mpoint
+  mpointf="/mnt/${mpoint}"
   if [[ $part == f ]] || [[ $part == F ]]
   then
     :
@@ -482,98 +492,17 @@ do
         mkdir $mpoint
         mount /dev/${part} $mpoint
         echo -e "${ok} Se ha creado ${mpoint} y se ha montado ${part}."
+        sleep 3
       fi
     fi
   fi
 done
 clear
-echo -n "Instalando kernel "
-pacstrap /mnt ${basepack[@]} 1>/dev/null
-echo -e "${ok}"
 echo -n "Generando fstab "
 genfstab -U /mnt >> /mnt/etc/fstab
 echo -e "${ok}"
 sleep 2
-until [[ $q9 == s ]] || [[ $q9 == S ]] || [[ $q9 == n ]] || [[ $q9 == N ]]
-do
-  empty_lines
-  echo "A continuacion se van a instalar las siguientes dependencias:"
-  echo ""
-  for pq in ${bichopack[@]}
-  do
-    echo "- ${pq}"
-  done
-  echo ""
-  echo "Desea instalar alguno de los paquetes? S/N"
-  read q9
-done
-if [[ $q9 == s ]] || [[ $q9 == S ]]
-then
-  while [[ -z $q10 ]]
-  do
-    clear
-    echo ""
-    echo "Teclee el/los numeros de los paquetes que desee instalar"
-    i=0
-    echo "- 40.Ninguno"
-    for pq in ${bichopack[@]}
-    do
-      echo "- ${i}.${pq}"
-      ((i=i+1))
-    done
-    echo "- 30.Todos"
-    read q10
-    echo "$q10"
-  done
-  if [[ $q10 == 40 ]]
-  then
-    :
-  elif [[ $q10 == 30 ]]
-  then
-    echo -n "Instalando todos los paquetes "
-    arch-chroot /mnt pacman -S --noconfirm ${bichopack[@]}
-    echo -e "${ok}"
-  else
-    for pq in $q10
-    do
-      target=${bichopack[$pq]}
-      if [[ -z $target ]]
-      then
-        echo -e "${error} No existe ningun paquete con el numero ${pq}"
-      else
-        echo -n "Instalando ${target} "
-        arch-chroot /mnt pacman -S $target
-        echo -e "${ok}"
-      fi
-    done
-  fi
-  sleep 40
- sleep 2
-elif [[ $q9 == n ]] || [[ $q9 == N ]]
-then
-  :
-fi
-clear
-gpuinfo=$(lspci | grep VGA | grep NVIDIA)
-if [[ -z $gpuinfo ]]
-then
-  :
-else
-  until [[ $q11 == n ]] || [[ $q11 == N ]] || [[ $q11 == s ]] || [[ $q11 == S ]]
-  do
-    empty_lines
-    echo -e "${warn} Se ha detectado que tu tarjeta grafica es NVIDIA, deseas instalar los drivers de NVIDIA? S/N"
-    read q11
-  done
-  if [[ $q11 == s ]] || [[ $q11 == S ]]
-  then
-    arch-chroot /mnt pacman -S nvidia nvidia-utils
-    echo -e "${ok} Se han instalado los drivers de NVIDIA"
-  else
-    :
-  fi
-fi
-until [[ $q12 == s ]] || [[ $q12 == S ]]
+until [[ $q9 == s ]] || [[ $q9 == S ]]
 do
   hostname=''
   while [[ -z $hostname ]]
@@ -587,13 +516,13 @@ do
   echo "El nombre del equipo es:"
   cat /mnt/etc/hostname
   echo "Es correcto? S/N"
-  read q12
+  read q9
 done
-until [[ $q13 == s ]] || [[ $q13 == S ]]
+until [[ $q10 == s ]] || [[ $q10 == S ]]
 do
   regionf=''
   ciudadf=''
-  q13=''
+  q10=''
   while [[ -z $regionf ]]
   do
     i=0
@@ -654,13 +583,13 @@ do
       sleep 2
     fi
   done
-  until [[ $q13 == S ]] || [[ $q13 == s ]] || [[ $q13 == N ]] || [[ $q13 == n ]]
+  until [[ $q10 == S ]] || [[ $q10 == s ]] || [[ $q10 == N ]] || [[ $q10 == n ]]
   do
     empty_lines
     echo "La ubicacion es:"
     echo "${ciudadf}, ${regionf}"
     echo "Es correcto? S/N"
-    read q13
+    read q10
   done
 done
 ln -sf /mnt/usr/share/zoneinfo/$regionf/$ciudadf /mnt/etc/localtime
@@ -669,7 +598,7 @@ empty_lines
 echo "A continuacion descomente los locales que quiera instalar"
 echo "Presione cualquier tecla para continuar"
 read cualquiera
-until [[ $q14 == s ]] || [[ $q14 == S ]]
+until [[ $q11 == s ]] || [[ $q11 == S ]]
 do
   nano /mnt/etc/locale.gen
   empty_lines
@@ -677,17 +606,17 @@ do
   locales_list
   echo ""
   echo "Desea continuar? S/N"
-  read q14
+  read q11
 done
 clear
 echo -n "Generando locales "
 arch-chroot /mnt locale-gen &>/dev/null
 echo -e "${ok}"
 sleep 1
-until [[ $q15 == s ]] || [[ $q15 == S ]]
+until [[ $q12 == s ]] || [[ $q12 == S ]]
 do
   langf=''
-  q15=''
+  q12=''
   lang=''
   while [[ -z $lang ]]
   do
@@ -705,10 +634,10 @@ do
   empty_lines
   echo "Se va a asignar [${langf}] como idioma principal"
   echo "Desea continuar? S/N"
-  read q15
+  read q12
 done
 echo "LANG=${langf}" > /mnt/etc/locale.conf
-until [[ $q16 == n ]] || [[ $q16 == N ]] || [[ $q16 == s ]] || [[ $q16 == S ]]
+until [[ $q13 == n ]] || [[ $q13 == N ]] || [[ $q13 == s ]] || [[ $q13 == S ]]
 do
   keymap='xd'
   until [[ -z $keymap ]] || [[ ! -z $(arch-chroot /mnt localectl list-keymaps | grep ${keymap} 2>/dev/null) ]]
@@ -728,19 +657,20 @@ do
   echo "Se va a instalar el siguiente layout"
   echo "[${keymap}]"
   echo "Desea continuar? S/N"
-  read q16
+  read q13
 done
 echo "KEYMAP=${keymap}" > /mnt/etc/vconsole.conf
-until [[ $q17 == n ]] || [[ $q17 == N ]] || [[ $q17 == s ]] || [[ $q17 == S ]]
+until [[ $q14 == n ]] || [[ $q14 == N ]] || [[ $q14 == s ]] || [[ $q14 == S ]]
 do
   empty_lines
   echo "Quieres crear un usuario nuevo? S/N"
-  read q17
+  read q14
 done
-if [[ $q17 == s ]] || [[ $q17 == S ]]
+if [[ $q14 == s ]] || [[ $q14 == S ]]
 then
   while [[ $username == root ]] || [[ -z $username ]]
   do
+    empty_lines
     echo "Como va a llamarse?"
     read username
   done
@@ -749,15 +679,103 @@ then
   then
     :
   else
-    echo "Quieres agregarlo a sudoers? S/N"
+    until [[ $q15 == n ]] || [[ $q15 == N ]] || [[ $q15 == s ]] || [[ $q15 == S ]]
+    do
+      empty_lines
+      echo "Quieres agregarlo a sudoers? S/N"
+      read q15
+    done
+    if [[ $q15 == s ]] || [[ $q15 == S ]]
+    then
+      echo "${username} ALL=(ALL) NOPASSWD: ALL" >> /mnt/etc/sudoers
+    else
+      :
+    fi
   fi
   arch-chroot /mnt passwd ${username}
-elif [[ $q17 == n ]] || [[ $q17 == N ]]
+elif [[ $q14 == n ]] || [[ $q14 == N ]]
 then
   echo "Asigna una clave al usuario root"
   arch-chroot /mnt passwd root
 fi
 echo "127.0.0.1     localhost" > /mnt/etc/hosts && echo "::1      localhost" >> /mnt/etc/hosts && echo "127.0.1.1     ${hostname}.localdomain     ${hostname}" >> /mnt/etc/hosts
+until [[ $q16 == s ]] || [[ $q16 == S ]] || [[ $q16 == n ]] || [[ $q16 == N ]]
+do
+  empty_lines
+  echo "A continuacion se van a instalar las siguientes dependencias:"
+  echo ""
+  for pq in ${bichopack[@]}
+  do
+    echo "- ${pq}"
+  done
+  echo ""
+  echo "Desea instalar alguno de los paquetes? S/N"
+  read q16
+done
+if [[ $q16 == s ]] || [[ $q16 == S ]]
+then
+  while [[ -z $q17 ]]
+  do
+    clear
+    echo ""
+    echo "Teclee el/los numeros de los paquetes que desee instalar"
+    i=0
+    echo "- 40.Ninguno"
+    for pq in ${bichopack[@]}
+    do
+      echo "- ${i}.${pq}"
+      ((i=i+1))
+    done
+    echo "- 30.Todos"
+    read q17
+  done
+  if [[ $q17 == 40 ]]
+  then
+    :
+  elif [[ $q17 == 30 ]]
+  then
+    echo -n "Instalando todos los paquetes "
+    pacman_func "${bichopack[@]}"
+    echo -e "${ok}"
+  else
+    for pq in $q17
+    do
+      target=${bichopack[$pq]}
+      if [[ -z $target ]]
+      then
+        echo -e "${error} No existe ningun paquete con el numero ${pq}"
+      else
+        echo -n "Instalando ${target} "
+        pacman_func "${target}"
+        echo -e "${ok}"
+      fi
+    done
+  fi
+ sleep 2
+elif [[ $q16 == n ]] || [[ $q16 == N ]]
+then
+  :
+fi
+clear
+gpuinfo=$(lspci | grep VGA | grep NVIDIA)
+if [[ -z $gpuinfo ]]
+then
+  :
+else
+  until [[ $q18 == n ]] || [[ $q18 == N ]] || [[ $q18 == s ]] || [[ $q18 == S ]]
+  do
+    empty_lines
+    echo -e "${warn} Se ha detectado que tu tarjeta grafica es NVIDIA, deseas instalar los drivers de NVIDIA? S/N"
+    read q18
+  done
+  if [[ $q18 == s ]] || [[ $q18 == S ]]
+  then
+    pacman_func "nvidia" "nvidia-utils"
+    echo -e "${ok} Se han instalado los drivers de NVIDIA"
+  else
+    :
+  fi
+fi
 empty_lines
 echo "Tienes un sistema UEFI o BIOS"
 while [[ -z $fcomp ]]
@@ -785,12 +803,12 @@ do
   fi
 done
 echo -n "Descargando GRUB"
-arch-chroot /mnt pacman -S grub
+pacman_func "grub"
 echo -e "${ok}"
 if [[ $biosv == B ]]
 then
   echo -n "Descargando efibootmgr"
-  pacman -S efibootmgr
+  pacman_func "efibootmgr"
   echo -e "${ok}"
   echo -n "Instalando GRUB"
   arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=$grubd --bootloader-id=GRUB
@@ -803,9 +821,7 @@ echo -e "${ok}"
 echo -n "Generando el archivo de configuracion de grub"
 arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 echo -e "${ok}"
-clear
-echo ""
-echo "----------------------------------------------"
+empty_lines
 echo "Por ultimo vamos a instalar el entorno grafico"
 sleep 2
 dsp=$(install_package "un Display Server" "del display server" "${displayservers[@]}")
@@ -814,7 +830,7 @@ then
   :
 else
   dsp=${displayservers[${dsp}]}
-  arch-chroot /mnt pacman -S $dsp
+  pacman_func "${dsp}"
 fi
 dsk=$(install_package "un Escritorio" "del escritorio" "${desktops[@]}")
 if [[ -z $dsk ]]
@@ -822,7 +838,7 @@ then
   :
 else
   dsk=${desktops[${dsk}]}
-  arch-chroot /mnt pacman -S $dsk
+  pacman_func "${dsk}"
 fi
 dmp=$(install_package "un Display Manager" "del display manager" "${dms[@]}")
 if [[ -z $dmp ]]
@@ -830,7 +846,7 @@ then
   :
 else
   dmp=${dms[${dmp}]}
-  arch-chroot /mnt pacman -S $dmp
+  pacman_func "${dmp}"
 fi
 wmp=$(install_package "un Window Manager" "del window manager" "${wms[@]}")
 if [[ -z $wmp ]]
@@ -838,7 +854,7 @@ then
   :
 else
   wmp=${wms[${wmp}]}
-  arch-chroot /mnt pacman -S $wmp
+  pacman_func "${wmp}"
 fi
 trmp=$(install_package "un Terminal" "del terminal" "${terminales[@]}")
 if [[ -z $trmp ]]
@@ -846,7 +862,7 @@ then
   :
 else
   trmp=${terminales[${trmp}]}
-  arch-chroot /mnt pacman -S $trmp
+  pacman_func "${trmp}"
 fi
 shp=$(install_package "un Shell" "del shell" "${shells[@]}")
 if [[ -z $shp ]]
@@ -854,7 +870,7 @@ then
   :
 else
   shp=${shells[${shp}]}
-  arch-chroot /mnt pacman -S $shp
+  pacman_func "${shp}"
 fi
 fmp=$(install_package "un File Manager" "del File Manager" "${fms[@]}")
 if [[ -z $fmp ]]
@@ -862,7 +878,7 @@ then
   :
 else
   fmp=${fms[${fmp}]}
-  arch-chroot /mnt pacman -S $fmp
+  pacman_func "${fmp}"
 fi
 nvp=$(install_package "un Navegador" "del navegador" "${navegadores[@]}")
 if [[ -z $nvp ]]
@@ -870,5 +886,5 @@ then
   :
 else
   nvp=${navegadores[${nvp}]}
-  arch-chroot /mnt pacman -S $nvp
+  pacman_func "${nvp}"
 fi
