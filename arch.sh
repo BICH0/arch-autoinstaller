@@ -638,7 +638,7 @@ done
 echo "LANG=${langf}" > /mnt/etc/locale.conf
 until [[ $q13 == n ]] || [[ $q13 == N ]] || [[ $q13 == s ]] || [[ $q13 == S ]]
 do
-  keymap=''
+  keymap='placeholder'
   until [[ -z $keymap ]] || [[ ! -z $(arch-chroot /mnt localectl list-keymaps | grep ${keymap} 2>/dev/null) ]]
   do
     empty_lines
@@ -773,9 +773,9 @@ else
     :
   fi
 fi
-while [[ -z $fcomp ]]
+while [[ -z $gcomp ]]
 do
-  fcomp=$(fdisk -l /dev/${grubd} 2>/dev/null)
+  gcomp=$(fdisk -l /dev/${grubd} 2>/dev/null)
   until [[ $biosv == u ]] || [[ $biosv == U ]] || [[ $biosv == b ]] || [[ $biosv == B ]]
   do
     empty_lines
@@ -809,11 +809,11 @@ then
   pacman_func "efibootmgr"
   echo -e "${ok}"
   sleep 2
-  echo -n "Instalando GRUB"
+  echo -n "Instalando GRUB "
   arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=$grubd --bootloader-id=GRUB
 elif [[ $biosv == U ]]
 then
-  echo -n "Instalando GRUB"
+  echo -n "Instalando GRUB "
   arch-chroot /mnt grub-install --target=i386pc /dev/$grubd
 fi
 echo -e "${ok}"
