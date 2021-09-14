@@ -88,7 +88,7 @@ partition_list () {
 locales_list () {
   i=0
   locales=()
-  for local in $(cat /etc/locale.gen | tail +7 | grep -v ^[#] |  cut -f1 -d' ')
+  for local in $(cat /mnt/etc/locale.gen | tail +7 | grep -v ^[#] |  cut -f1 -d' ')
   do
     echo "- ${i}.${local}"
     locales+=(${local})
@@ -135,15 +135,15 @@ install_package () {
   then
     :
   else
-    return $ipr1
+    pacman_func "${iarr[${ipr1}]}"
   fi
 }
 #SCRIPT
-#if [[ -z $(uname -r | grep arch) ]] ##Elimina este if si sabes lo que haces y no tinenes arch
-#then
-#  echo -e "${error} No estas utilizando Arch linux, no se puede seguir con la instalacion"
-#  exit
-#fi
+if [[ -z $(uname -r | grep arch) ]] ##Elimina este if si sabes lo que haces y no tinenes arch
+then
+  echo -e "${error} No estas utilizando Arch linux, no se puede seguir con la instalacion"
+  exit
+fi
 if [[ $(whoami) != root ]]
 then
   echo -e "${error} Debes ejecutar el programa como root, usa sudo su"
@@ -151,7 +151,7 @@ then
 fi
 if [[ -z $discos ]]
 then
-  echo -e "${error} No hay ningun disco conectado a la máquina"
+  echo -e "${error} No hay ningun disco conectado a la maquina"
  	exit
 fi
 discos_conectados
@@ -203,7 +203,7 @@ do
               clear
 							echo "----[${disco}]"
 		          echo ""
-		          echo "Debes seleccionar un tipo de partición o cancelar la operación."
+		          echo "Debes seleccionar un tipo de particion o cancelar la operacion."
 		          echo ""
 		          echo "Particion ${i}:"
 							if [[ $i == 1 ]]
@@ -220,7 +220,7 @@ do
               clear
 		          echo "----[${disco}]"
 		          echo ""
-		          echo "Debes seleccionar un tipo de partición o cancelar la operación."
+		          echo "Debes seleccionar un tipo de particion o cancelar la operacion."
 		          echo ""
 		          echo "Particion ${i}:"
 							if [[ $i == 1 ]]
@@ -279,14 +279,13 @@ do
 					opciones+=('n')
 					opciones+=('nbsp')
         fi
-				echo "Que tamaño quieres que tenga la partición."
-				echo "Introduce una cifra acompañada de la unidad (T)erabyte (G)igabyte (M)egabyte o (K)ilobyte."
+				echo "Que tamaño quieres que tenga la particion."
+				echo "Introduce una cifra acompañada de la unidad (T)erabyte (G)igabyte (M)egabyte o (K)ilobyte o pulsa enter para utilizar el resto."
 				read psize
-				while [[ -z $psize ]]
-				do
-						echo -e "${error} Debes introducir un tamaño valido. Ej: 2G"
-						read psize
-				done
+				if [[ -z $psize ]]
+        then
+          opciones+=('nbsp')
+        fi
 				opciones+=(+$psize)
 				if [[ $prm < 4 ]]
 				then
@@ -489,7 +488,7 @@ do
       done
       if [[ $q8 == s ]] || [[ $q8 == S ]]
       then
-        mkdir $mpoint
+        mkdir -p $mpoint
         mount /dev/${part} $mpoint
         echo -e "${ok} Se ha creado ${mpoint} y se ha montado ${part}."
         sleep 3
@@ -639,7 +638,7 @@ done
 echo "LANG=${langf}" > /mnt/etc/locale.conf
 until [[ $q13 == n ]] || [[ $q13 == N ]] || [[ $q13 == s ]] || [[ $q13 == S ]]
 do
-  keymap='xd'
+  keymap=''
   until [[ -z $keymap ]] || [[ ! -z $(arch-chroot /mnt localectl list-keymaps | grep ${keymap} 2>/dev/null) ]]
   do
     empty_lines
@@ -693,11 +692,9 @@ then
     fi
   fi
   arch-chroot /mnt passwd ${username}
-elif [[ $q14 == n ]] || [[ $q14 == N ]]
-then
-  echo "Asigna una clave al usuario root"
-  arch-chroot /mnt passwd root
 fi
+echo "Asigna una clave al usuario root"
+arch-chroot /mnt passwd root
 echo "127.0.0.1     localhost" > /mnt/etc/hosts && echo "::1      localhost" >> /mnt/etc/hosts && echo "127.0.1.1     ${hostname}.localdomain     ${hostname}" >> /mnt/etc/hosts
 until [[ $q16 == s ]] || [[ $q16 == S ]] || [[ $q16 == n ]] || [[ $q16 == N ]]
 do
@@ -776,8 +773,6 @@ else
     :
   fi
 fi
-empty_lines
-echo "Tienes un sistema UEFI o BIOS"
 while [[ -z $fcomp ]]
 do
   fcomp=$(fdisk -l /dev/${grubd} 2>/dev/null)
@@ -790,26 +785,30 @@ do
   done
   if [[ $biosv == b ]] || [[ $biosv == B ]]
   then
+    empty_lines
     echo "A continuacion se va a descargar e instalar grub, seleccione el DISCO de arranque"
     discos_conectados
     read grubd
     biosv=B
   elif [[ $biosv == u ]] || [[ $biosv == U ]]
   then
-      echo "A continuacion se va a descargar e instalar grub, seleccion la particion UEFI"
-      partition_list
-      read grubd
-      biosv=U
+    empty_lines
+    echo "A continuacion se va a descargar e instalar grub, seleccion la particion UEFI"
+    partition_list
+    read grubd
+    biosv=U
   fi
 done
-echo -n "Descargando GRUB"
+echo -n "Descargando GRUB "
 pacman_func "grub"
 echo -e "${ok}"
+sleep 2
 if [[ $biosv == B ]]
 then
-  echo -n "Descargando efibootmgr"
+  echo -n "Descargando efibootmgr "
   pacman_func "efibootmgr"
   echo -e "${ok}"
+  sleep 2
   echo -n "Instalando GRUB"
   arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=$grubd --bootloader-id=GRUB
 elif [[ $biosv == U ]]
@@ -818,73 +817,19 @@ then
   arch-chroot /mnt grub-install --target=i386pc /dev/$grubd
 fi
 echo -e "${ok}"
+sleep 2
 echo -n "Generando el archivo de configuracion de grub"
 arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 echo -e "${ok}"
+sleep 2
 empty_lines
 echo "Por ultimo vamos a instalar el entorno grafico"
 sleep 2
-dsp=$(install_package "un Display Server" "del display server" "${displayservers[@]}")
-if [[ -z $dsp ]]
-then
-  :
-else
-  dsp=${displayservers[${dsp}]}
-  pacman_func "${dsp}"
-fi
-dsk=$(install_package "un Escritorio" "del escritorio" "${desktops[@]}")
-if [[ -z $dsk ]]
-then
-  :
-else
-  dsk=${desktops[${dsk}]}
-  pacman_func "${dsk}"
-fi
-dmp=$(install_package "un Display Manager" "del display manager" "${dms[@]}")
-if [[ -z $dmp ]]
-then
-  :
-else
-  dmp=${dms[${dmp}]}
-  pacman_func "${dmp}"
-fi
-wmp=$(install_package "un Window Manager" "del window manager" "${wms[@]}")
-if [[ -z $wmp ]]
-then
-  :
-else
-  wmp=${wms[${wmp}]}
-  pacman_func "${wmp}"
-fi
-trmp=$(install_package "un Terminal" "del terminal" "${terminales[@]}")
-if [[ -z $trmp ]]
-then
-  :
-else
-  trmp=${terminales[${trmp}]}
-  pacman_func "${trmp}"
-fi
-shp=$(install_package "un Shell" "del shell" "${shells[@]}")
-if [[ -z $shp ]]
-then
-  :
-else
-  shp=${shells[${shp}]}
-  pacman_func "${shp}"
-fi
-fmp=$(install_package "un File Manager" "del File Manager" "${fms[@]}")
-if [[ -z $fmp ]]
-then
-  :
-else
-  fmp=${fms[${fmp}]}
-  pacman_func "${fmp}"
-fi
-nvp=$(install_package "un Navegador" "del navegador" "${navegadores[@]}")
-if [[ -z $nvp ]]
-then
-  :
-else
-  nvp=${navegadores[${nvp}]}
-  pacman_func "${nvp}"
-fi
+install_package "un Display Server" "del display server" "${displayservers[@]}"
+install_package "un Escritorio" "del escritorio" "${desktops[@]}"
+install_package "un Display Manager" "del display manager" "${dms[@]}"
+install_package "un Window Manager" "del window manager" "${wms[@]}"
+install_package "un Terminal" "del terminal" "${terminales[@]}"
+install_package "un Shell" "del shell" "${shells[@]}"
+install_package "un File Manager" "del File Manager" "${fms[@]}"
+install_package "un Navegador" "del navegador" "${navegadores[@]}"
