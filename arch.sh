@@ -42,11 +42,11 @@ EOF
  discos=$(ls /dev/?d? /dev/nvme0n? 2>/dev/null)
  ohmyzshlink="https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
  basepack=('base' 'linux' 'linux-firmware' 'nano' 'wget' 'sudo' 'neofetch')
- bichopack=('dhcpcd' 'git' 'iftop' 'neovim' 'conky')
+ bichopack=('dhcpcd' 'git' 'htop' 'neovim' 'conky' 'networkmanager' 'discord' 'obs-studio')
  displayservers=('xorg')
  desktops=('xfce4' 'gnome' 'cinnamon' 'plasma' 'mate' 'deepin')
  dms=('lightdm')
- lightdm_greeters=('lightdm-kde-greeter' 'lightdm-gtk-greeter' 'lightdm-pantheon-greeter')
+ lightdm_greeters=('lightdm-kde-greeter' 'lightdm-gtk-greeter' 'lightdm-pantheon-greeter' 'lightdm-webkit2-greeter')
  wms=('i3' 'i3-gaps' 'awesome' 'xmonad')
  terminales=('alacritty' 'konsole' 'kitty' 'yakuake' 'terminator')
  shells=('bash' 'zsh' 'ksh' 'fish')
@@ -209,7 +209,18 @@ install_package () {
       done
       if [[ $ohmyzsh == s ]] || [[ $ohmyzsh == S ]]
       then
-        sh -c "$(wget -O- ${ohmyzshlink})"
+        echo -n "Descargando OhMyZSH"
+        arch-chroot /mnt sh -c "$(wget -O- $ohmyzshlink)" "" --unattended &>/dev/null
+        echo -e "${ok}"
+        echo -n "Cambiando shell predeterminada"
+        if [[ -z $username ]]
+        then
+          arch-chroot /mnt su root -c "chsh -s /usr/bin/zsh &>/dev/null"
+        else
+          arch-chroot /mnt su $USERNAME -c "chsh -s /usr/bin/zsh &>/dev/null"
+        fi
+        echo -e "${ok}"
+        sleep 4
       fi
     else
       echo -n "Instalando ${iarr[${ipr1}]} "
@@ -266,7 +277,6 @@ do
  	if [[ $q1 == 1 ]]
  	then
  		clear
- 		#echo "----[${disco}] Restante: ${disk_array[${dn}]}M"
     comp=$(ls ${disco}? ${disco}p? 2>/dev/null)
     if [[ -z $comp ]]
     then
@@ -279,7 +289,7 @@ do
           break
         fi
         q2=''
-				if [[ $prm < 4 ]]
+				if [[ $prm -le 3 ]]
 				then
           if [[ $ext == True ]]
 					then
@@ -334,6 +344,7 @@ do
 							q2=x
 						fi
 					fi
+          break
 				fi
         if [[ $q2 == p ]] || [[ $q2 == P ]]
         then
@@ -370,11 +381,17 @@ do
   				echo "Que tamaño quieres que tenga la particion."
   				echo "Introduce una cifra acompañada de la unidad (T)erabyte (G)igabyte (M)egabyte o (K)ilobyte o pulsa enter para utilizar el resto."
   				read psize
-          sizeconver ${psize}
-          test_size=$((${disk_array[${dn}]} - nsize))
-          if [[ $test_size -eq 0 ]] || [[ $test_size -lt 0 ]]
+          if [[ ! -z $psize ]]
           then
-            echo -e "${error} El tamaño de la particion es superior a la del disco, si quieres que la particion ocupe el resto del disco pulsa solo enter"
+            sizeconver ${psize}
+            test_size=$((${disk_array[${dn}]} - $nsize))
+            if [[ $test_size -eq 0 ]] || [[ $test_size -lt 0 ]]
+            then
+              echo "${test_size} = ${disk_array[${dn}]} - $nsize"
+              echo -e "${error} El tamaño de la particion es superior a la del disco, si quieres que la particion ocupe el resto del disco pulsa solo enter"
+            fi
+          else
+            test_size=1
           fi
         done
         if [[ -z $psize ]]
@@ -387,7 +404,7 @@ do
         fi
         opciones+=(+$psize)
         disk_array[${dn}]=$test_size
-				if [[ $prm < 4 ]]
+				if [[ $prm -le 3 ]]
 				then
 					echo "¿Es una particion especial?"
 					echo "(S)wap o (U)efi, (N)o"
@@ -607,7 +624,7 @@ do
     then
       echo -e "${error} No puedes montar la particion root"
       sleep 2
-    elif [[ -/dev/${part} == $eswap ]]
+    elif [[ /dev/${part} == $eswap ]]
     then
       echo -e "${error} No puedes montar la particion swap"
       sleep 2
@@ -968,7 +985,24 @@ then
   pacman_func "efibootmgr"
   echo -e "${ok}"
   echo -n "Instalando GRUB "
-  arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
+  uefi_install=$(arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB 2>&1 | grep "EFI")
+  if [[ ! -z $uefi_install ]]
+  then
+    echo -e "${error}"
+    echo "Tu sistema no es compatible con UEFI"
+    sleep 2
+    gcomp=""
+    while [[ -z $gcomp ]]
+    do
+      empty_lines
+      echo "Se va a instalar GRUB en su version BIOS, seleccione el DISCO de arranque"
+      discos_conectados
+      read grubd
+      gcomp=$(fdisk -l ${grubd} 2>/dev/null)
+    done
+    echo -n "Instalando GRUB "
+    arch-chroot /mnt grub-install --target=i386-pc "${grubd}" &>/dev/null
+  fi
 elif [[ $biosv == B ]]
 then
   echo -n "Instalando GRUB "
@@ -1012,4 +1046,11 @@ then
   echo -n "Activando configuracion de red "
   arch-chroot /mnt systemctl enable dhcpcd &>/dev/null
   echo -e "${ok}"
+  sleep 2
 fi
+empty_lines
+echo ""
+echo "GRACIAS POR UTILIZAR ARCH GUIDE-INSTALL BY CONFUGIRADORES®"
+echo ""
+echo "--------------------------------------------------------------------------------------------------"
+echo "Visita www.confugiradores.es para mas scripts, proyectos y tutoriales."
