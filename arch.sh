@@ -41,8 +41,8 @@ EOF
  ##CONST
  discos=$(ls /dev/?d? /dev/nvme0n? 2>/dev/null)
  ohmyzshlink="https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
- basepack=('base' 'linux' 'linux-firmware' 'nano' 'wget' 'sudo' 'neofetch')
- bichopack=('dhcpcd' 'git' 'htop' 'neovim' 'conky' 'networkmanager' 'discord' 'obs-studio')
+ basepack=('base' 'linux' 'linux-firmware')
+ bichopack=('dhcpcd' 'git' 'nano' 'wget' 'sudo' 'neofetch' 'htop' 'neovim' 'conky' 'networkmanager' 'discord' 'obs-studio')
  displayservers=('xorg')
  desktops=('xfce4' 'gnome' 'cinnamon' 'plasma' 'mate' 'deepin')
  dms=('lightdm')
@@ -210,7 +210,7 @@ install_package () {
       if [[ $ohmyzsh == s ]] || [[ $ohmyzsh == S ]]
       then
         echo -n "Descargando OhMyZSH"
-        arch-chroot /mnt sh -c "$(wget -O- $ohmyzshlink)" "" --unattended &>/dev/null
+        arch-chroot /mnt sh -c "$(curl $ohmyzshlink)" "" --unattended &>/dev/null
         echo -e "${ok}"
         echo -n "Cambiando shell predeterminada"
         if [[ -z $username ]]
@@ -255,6 +255,7 @@ echo ""
 dn=0
 for disco in $discos
 do
+  disk_part=""
   prm=0
 	opciones=()
  	echo "----[${disco}]"
@@ -278,183 +279,229 @@ do
  	then
  		clear
     comp=$(ls ${disco}? ${disco}p? 2>/dev/null)
-    if [[ -z $comp ]]
+    if [[ ! -z $comp ]]
     then
-			ext=False
-      full=False
-  		for i in $(seq 1 10)
+      format_disk=""
+      until [[ $format_disk == s ]] || [[ $format_disk == S ]] || [[ $format_disk == n ]] || [[ $format_disk == N ]]
       do
-        if [[ $full == "True" ]]
+        empty_lines
+        echo -e "${error} El disco no esta vacio, vacialo para particionarlo."
+        echo "¿Deseas formatealo? S/N"
+        echo ""
+        echo -e "${warn} PERDERAS TODOS LOS ARCHIVOS ${warn}"
+        read format_disk
+      done
+    fi
+    if [[ $format_disk == "s" ]] || [[ $format_disk == "S" ]] || [[ -z $comp ]]
+    then
+      until [[ $disk_part == "s" ]] || [[ $disk_part == "S" ]]
+      do
+        if [[ $disk_part == "n" ]] || [[ $disk_part == "N" ]]
         then
-          break
+          disk_part=""
+          prm=0
+        	opciones=()
+          sizeconver $(lsblk $disco | head -n2 | tail -n1 | awk '{print $4}')
+          disk_array[${dn}]=$nsize
         fi
-        q2=''
-				if [[ $prm -le 3 ]]
-				then
-          if [[ $ext == True ]]
-					then
-						until [[ $q2 == p ]] || [[ $q2 == P ]] || [[ $q2 == l ]] || [[ $q2 == L ]] || [[ $q2 == c ]] || [[ $q2 == C ]] || [[ $q2 == f ]] || [[ $q2 == F ]]
-		        do
-              clear
-							echo "----[${disco}] Restante: ${disk_array[${dn}]}M"
-		          echo ""
-		          echo "Debes seleccionar un tipo de particion o cancelar la operacion."
-		          echo ""
-		          echo "Particion ${i}:"
-							if [[ $i == 1 ]]
-							then
-								echo "(P)rimaria, (L)ogica o (C)ancelar"
-							else
-								echo "(P)rimaria, (L)ogica, (F)in o (C)ancelar)"
-							fi
-		           	read q2
-            done
-					else
-						until [[ $q2 == p ]] || [[ $q2 == P ]] || [[ $q2 == e ]] || [[ $q2 == E ]] || [[ $q2 == c ]] || [[ $q2 == C ]] || [[ $q2 == F ]] || [[ $q2 == f ]]
-		        do
-              clear
-		          echo "----[${disco}] Restante: ${disk_array[${dn}]}M"
-		          echo ""
-		          echo "Debes seleccionar un tipo de particion o cancelar la operacion."
-		          echo ""
-		          echo "Particion ${i}:"
-							if [[ $i == 1 ]]
-							then
-			  				echo "(P)rimaria, (E)xtendida o (C)ancelar"
-							else
-								echo "(P)rimaria, (E)xtendida, (F)in o (C)ancelar)"
-							fi
-		          read q2
-            done
-					fi
-				else
-					if [[ $ext == True ]]
-					then
-						until [[ $q2 == n ]] || [[ $q2 == N ]] || [[ $q2 == f ]] || [[ $q2 == F ]]
-						do
-              clear
-							echo "----[${disco}] Restante: ${disk_array[${dn}]}M"
-							echo ""
-							echo "Se han terminado de crear todas las particiones primarias, a continuacion se crearan particiones logicas"
-							echo "(N)ueva, (F)inalizar"
-							read q2
-            done
-						if [[ $q2 == n ]] || [[ $q2 == N ]]
-						then
-							q2=x
-						fi
-					fi
-          break
-				fi
-        if [[ $q2 == p ]] || [[ $q2 == P ]]
-        then
-					opciones+=('n')
-          opciones+=('p')
-					fdisk_repair
-					((prm=prm+1))
-        elif [[ $q2 == e ]] || [[ $q2 == E ]]
-        then
-					ext=True
-					opciones+=('n')
-          opciones+=('e')
-					fdisk_repair
-					((prm=prm+1))
-				elif [[ $q2 == l ]] || [[ $q2 == L ]]
-				then
-					opciones+=('n')
-					opciones+=('l')
-					opciones+=('nbsp')
-        elif [[ $q2 == c ]] || [[ $q2 == C ]]
-        then
-          break 1
-				elif [[ $q2 == f ]] || [[ $q2 == F ]]
-				then
-					break 1
-				elif [[ $q2 == x ]]
-				then
-					opciones+=('n')
-					opciones+=('nbsp')
-        fi
-        test_size=-1
-        until [[ $test_size -gt 0 ]]
+        printf "o\nw\n" | fdisk $disco &>/dev/null
+  			ext=False
+        full=False
+    		for i in $(seq 1 10)
         do
-  				echo "Que tamaño quieres que tenga la particion."
-  				echo "Introduce una cifra acompañada de la unidad (T)erabyte (G)igabyte (M)egabyte o (K)ilobyte o pulsa enter para utilizar el resto."
-  				read psize
-          if [[ ! -z $psize ]]
+          if [[ $full == "True" ]]
           then
-            sizeconver ${psize}
-            test_size=$((${disk_array[${dn}]} - $nsize))
-            if [[ $test_size -eq 0 ]] || [[ $test_size -lt 0 ]]
+            break
+          fi
+          q2=''
+  				if [[ $prm -le 3 ]]
+    			then
+            if [[ $ext == True ]]
+    				then
+    					until [[ $q2 == p ]] || [[ $q2 == P ]] || [[ $q2 == l ]] || [[ $q2 == L ]] || [[ $q2 == c ]] || [[ $q2 == C ]] || [[ $q2 == f ]] || [[ $q2 == F ]]
+    	        do
+                clear
+    						echo "----[${disco}] Restante: ${disk_array[${dn}]}M"
+    	          echo ""
+    	          echo "Debes seleccionar un tipo de particion o cancelar la operacion."
+    	          echo ""
+    	          echo "Particion ${i}:"
+    						if [[ $i == 1 ]]
+    						then
+    							echo "(P)rimaria, (L)ogica o (C)ancelar"
+    						else
+    							echo "(P)rimaria, (L)ogica, (F)in o (C)ancelar)"
+    						fi
+    	           	read q2
+              done
+    				else
+    					until [[ $q2 == p ]] || [[ $q2 == P ]] || [[ $q2 == e ]] || [[ $q2 == E ]] || [[ $q2 == c ]] || [[ $q2 == C ]] || [[ $q2 == F ]] || [[ $q2 == f ]]
+    	        do
+                clear
+    	          echo "----[${disco}] Restante: ${disk_array[${dn}]}M"
+    	          echo ""
+    	          echo "Debes seleccionar un tipo de particion o cancelar la operacion."
+    	          echo ""
+    	          echo "Particion ${i}:"
+    						if [[ $i == 1 ]]
+    						then
+    		  				echo "(P)rimaria, (E)xtendida o (C)ancelar"
+    						else
+    							echo "(P)rimaria, (E)xtendida, (F)in o (C)ancelar)"
+    						fi
+    	          read q2
+              done
+    				fi
+  				else
+  					if [[ $ext == True ]]
+  					then
+  						until [[ $q2 == n ]] || [[ $q2 == N ]] || [[ $q2 == f ]] || [[ $q2 == F ]]
+  						do
+                clear
+  							echo "----[${disco}] Restante: ${disk_array[${dn}]}M"
+  							echo ""
+  							echo "Se han terminado de crear todas las particiones primarias, a continuacion se crearan particiones logicas"
+  							echo "(N)ueva, (F)inalizar"
+  							read q2
+              done
+  						if [[ $q2 == n ]] || [[ $q2 == N ]]
+  						then
+  							q2=x
+  						fi
+  					fi
+            break
+  				fi
+          if [[ $q2 == p ]] || [[ $q2 == P ]]
+          then
+  					opciones+=('n')
+            opciones+=('p')
+  					fdisk_repair
+  					((prm=prm+1))
+          elif [[ $q2 == e ]] || [[ $q2 == E ]]
+          then
+  					ext=True
+  					opciones+=('n')
+            opciones+=('e')
+  					fdisk_repair
+  					((prm=prm+1))
+  				elif [[ $q2 == l ]] || [[ $q2 == L ]]
+  				then
+  					opciones+=('n')
+  					opciones+=('l')
+  					opciones+=('nbsp')
+          elif [[ $q2 == c ]] || [[ $q2 == C ]]
+          then
+            opciones=('')
+            break 1
+  				elif [[ $q2 == f ]] || [[ $q2 == F ]]
+  				then
+  					break 1
+  				elif [[ $q2 == x ]]
+  				then
+  					opciones+=('n')
+  					opciones+=('nbsp')
+          fi
+          test_size=-1
+          until [[ $test_size -gt 0 ]]
+          do
+            echo ""
+    				echo "Que tamaño quieres que tenga la particion."
+    				echo "Introduce una cifra acompañada de la unidad (T)erabyte (G)igabyte (M)egabyte o (K)ilobyte o pulsa enter para utilizar el resto."
+    				read psize
+            if [[ ! -z $psize ]]
             then
-              echo "${test_size} = ${disk_array[${dn}]} - $nsize"
-              echo -e "${error} El tamaño de la particion es superior a la del disco, si quieres que la particion ocupe el resto del disco pulsa solo enter"
+              if [[ ! $psize =~ ^[0-9]{1,4}[GMTK]{1}$ ]]
+              then
+                echo -e "${error} El tamaño no cumple los requisitos necesarios, debe ser un número de máximo 4 cifras y una letra MAYUSCULA."
+                echo "Por ej: 1234M"
+              else
+                sizeconver ${psize}
+                test_size=$((${disk_array[${dn}]} - $nsize))
+                if [[ $test_size -eq 0 ]] || [[ $test_size -lt 0 ]]
+                then
+                  echo -e "${error} Tamaño superior al espacio libre del disco."
+                fi
+              fi
+            else
+              test_size=1
             fi
-          else
-            test_size=1
-          fi
-        done
-        if [[ -z $psize ]]
-        then
-          opciones+=('nbsp')
-          if [[ $ext == "False" ]] || [[ $q2 == "l" ]] || [[ $q2 == "L" ]]
+          done
+          if [[ -z $psize ]]
           then
-            full=True
+            opciones+=('nbsp')
+            if [[ $ext == "False" ]] || [[ $q2 == "l" ]] || [[ $q2 == "L" ]]
+            then
+              full=True
+            fi
           fi
-        fi
-        opciones+=(+$psize)
-        disk_array[${dn}]=$test_size
-				if [[ $prm -le 3 ]]
-				then
-					echo "¿Es una particion especial?"
-					echo "(S)wap o (U)efi, (N)o"
-					read spc
-				  until [[ $spc == S ]] || [[ $spc == s ]] || [[ $spc == U ]] || [[ $spc == u ]] || [[ $spc == N ]] || [[ $spc == n ]]
-					do
-						echo -e "${error} Debes introducir una opcion valida"
-						echo "(S)wap o (U)efi, (N)o"
-						read spc
-					done
-					if [[ $spc == s ]] || [[ $spc == S ]]
-					then
-						opciones+=('t')
-						if [[ ! $i == 1 ]]
-						then
-							opciones+=($i)
-						fi
-						opciones+=('82')
-					elif [[ $spc == U ]] || [[ $spc == u ]]
-					then
+          opciones+=(+$psize)
+          disk_array[${dn}]=$test_size
+  				echo "¿Es una particion especial?"
+  				echo "(S)wap o (U)efi, (N)o"
+  				read spc
+  			  until [[ $spc == S ]] || [[ $spc == s ]] || [[ $spc == U ]] || [[ $spc == u ]] || [[ $spc == N ]] || [[ $spc == n ]]
+  				do
+  					echo -e "${error} Debes introducir una opcion valida"
+  					echo "(S)wap o (U)efi, (N)o"
+  					read spc
+  				done
+  				if [[ $spc == s ]] || [[ $spc == S ]]
+  				then
+  					opciones+=('t')
+  					if [[ ! $i == 1 ]]
+  					then
+  						opciones+=($i)
+  					fi
+  					opciones+=('82')
+  				elif [[ $spc == U ]] || [[ $spc == u ]]
+  				then
             uefi_part="True"
-						opciones+=('t')
-					  if [[ ! $i == 1 ]]
-						then
-							opciones+=($i)
-						fi
-						opciones+=('ef')
-					fi
-				fi
-	    done
-			if [[ ! $q2 == C ]] || [[ ! $q2 == c ]]
-			then
-        opciones+=("w")
-				name=$(printf "$disco" | awk -F'/' '{print $3}')
-	      touch /tmp/disk${name}.tmp
-	      for opt in ${opciones[@]}
-	      do
-          if [[ $opt == nbsp ]]
-					then
-            printf "\n" >> /tmp/disk${name}.tmp
-					else
-	         	printf "$opt\n" >> /tmp/disk${name}.tmp
-					fi
+  					opciones+=('t')
+  				  if [[ ! $i == 1 ]]
+  					then
+  						opciones+=($i)
+  					fi
+  					opciones+=('ef')
+  				fi
+  	    done
+  			if [[ ! $q2 == C ]] || [[ ! $q2 == c ]]
+  			then
+          opciones+=("w")
+  				name=$(printf "$disco" | awk -F'/' '{print $3}')
+  	      touch /tmp/disk${name}.tmp
+  	      for opt in ${opciones[@]}
+  	      do
+            if [[ $opt == nbsp ]]
+  					then
+              printf "\n" >> /tmp/disk${name}.tmp
+  					else
+  	         	printf "$opt\n" >> /tmp/disk${name}.tmp
+  					fi
+          done
+  				fdisk /dev/${name} < /tmp/disk${name}.tmp &>/dev/null
+  				rm /tmp/disk${name}.tmp
+  			fi
+        until [[ $disk_part == "s" ]] || [[ $disk_part == "S" ]] || [[ $disk_part == "n" ]] || [[ $disk_part == "N" ]]
+        do
+          empty_lines
+          echo $disco
+          particiones=$(lsblk $disco | tail +3 | sed -r 's/[ ]+/-/g' | cut -f1,4 -d'-')
+          if [[ -z $(echo $particiones | wc -w) ]]
+          then
+            echo ""
+            echo "No has creado ninguna particion, ¿quieres continuar? S/N"
+            read disk_part
+          else
+            for line in $particiones
+      	    do
+              echo "$line"
+	            done
+              echo ""
+              echo "¿Estas son las particiones que has creado, quieres continuar? S/N"
+              read disk_part
+          fi
         done
-				fdisk /dev/${name} < /tmp/disk${name}.tmp &>/dev/null
-				rm /tmp/disk${name}.tmp
-			fi
-    else
-      echo -e "${error} El disco no esta vacio, vacialo para particionarlo."
-      sleep 3
+      done
     fi
  	elif [[ $q1 == 2 ]]
  	then
@@ -849,30 +896,13 @@ then
   arch-chroot /mnt chown -R $username:$username /home/$username
   echo -e "${ok}"
   sleep 2
-  if [[ -z $(arch-chroot /mnt pacman -Q sudo 2>/dev/null) ]]
-  then
-    :
-  else
-    until [[ $q15 == n ]] || [[ $q15 == N ]] || [[ $q15 == s ]] || [[ $q15 == S ]]
-    do
-      empty_lines
-      echo "Quieres agregarlo a sudoers? S/N"
-      read q15
-    done
-    if [[ $q15 == s ]] || [[ $q15 == S ]]
-    then
-      echo "${username} ALL=(ALL) NOPASSWD: ALL" >> /mnt/etc/sudoers
-    else
-      :
-    fi
-  fi
   arch-chroot /mnt passwd ${username}
 fi
 empty_lines
 echo "Asigna una clave al usuario root"
 arch-chroot /mnt passwd root
 echo "127.0.0.1     localhost" > /mnt/etc/hosts && echo "::1      localhost" >> /mnt/etc/hosts && echo "127.0.1.1     ${hostname}.localdomain     ${hostname}" >> /mnt/etc/hosts
-until [[ $q16 == s ]] || [[ $q16 == S ]] || [[ $q16 == n ]] || [[ $q16 == N ]]
+until [[ $q15 == s ]] || [[ $q15 == S ]] || [[ $q15 == n ]] || [[ $q15 == N ]]
 do
   empty_lines
   echo "A continuacion se van a instalar las siguientes dependencias:"
@@ -883,11 +913,11 @@ do
   done
   echo ""
   echo "Desea instalar alguno de los paquetes? S/N"
-  read q16
+  read q15
 done
-if [[ $q16 == s ]] || [[ $q16 == S ]]
+if [[ $q15 == s ]] || [[ $q15 == S ]]
 then
-  while [[ -z $q17 ]]
+  while [[ -z $q16 ]]
   do
     clear
     echo ""
@@ -900,18 +930,18 @@ then
       ((i=i+1))
     done
     echo "- 30.Todos"
-    read q17
+    read q16
   done
-  if [[ $q17 == 40 ]]
+  if [[ $q16 == 40 ]]
   then
     :
-  elif [[ $q17 == 30 ]]
+  elif [[ $q16 == 30 ]]
   then
     echo -n "Instalando todos los paquetes "
     pacman_func "${bichopack[@]}"
     echo -e "${ok}"
   else
-    for pq in $q17
+    for pq in $q16
     do
       target=${bichopack[$pq]}
       if [[ -z $target ]]
@@ -925,11 +955,28 @@ then
     done
   fi
  sleep 2
-elif [[ $q16 == n ]] || [[ $q16 == N ]]
+elif [[ $q15 == n ]] || [[ $q15 == N ]]
 then
   :
 fi
 clear
+if [[ -z $(arch-chroot /mnt pacman -Q sudo 2>/dev/null) ]]
+then
+  :
+else
+  until [[ $q17 == n ]] || [[ $q17 == N ]] || [[ $q17 == s ]] || [[ $q17 == S ]]
+  do
+    empty_lines
+    echo "Se ha detectado que has instalado la utilidad sudo. ¿quieres agregar a tu usuario a sudores? S/N"
+    read q17
+  done
+  if [[ $q15 == s ]] || [[ $q15 == S ]]
+  then
+    echo "${username} ALL=(ALL) NOPASSWD: ALL" >> /mnt/etc/sudoers
+  else
+    :
+  fi
+fi
 gpuinfo=$(lspci | grep VGA | grep NVIDIA)
 if [[ -z $gpuinfo ]]
 then
