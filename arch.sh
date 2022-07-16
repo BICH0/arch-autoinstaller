@@ -1,7 +1,9 @@
 #!/bin/bash
 clear
+for ((x=0; x<$(tput cols)-40; x++));do ncols+="-"; done
 intro (){
 cat << "EOF"
+
 Bienvenido al automatizador de instalaciones de Arch Linux
 
                    -`
@@ -25,10 +27,10 @@ Bienvenido al automatizador de instalaciones de Arch Linux
  .`                                 `
  By CONFUGIRADORES®
 
---------------------------------------------------------------------------------------------------
 EOF
 }
  intro
+ echo $ncols
  sleep 3
  #COLORS
  nc="\e[m"
@@ -44,16 +46,26 @@ EOF
  ohmyzshlink="https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
  basepack=('base' 'linux' 'linux-firmware')
  bichopack=('dhcpcd' 'git' 'nano' 'wget' 'sudo' 'neofetch' 'htop' 'neovim' 'conky' 'networkmanager' 'discord' 'obs-studio')
+ aurpackages=('yay' 'pikaur' 'trizen')
  displayservers=('xorg')
  desktops=('xfce4' 'gnome' 'cinnamon' 'plasma' 'mate' 'deepin')
- dms=('lightdm')
+ dms=('lightdm' 'lxdm' 'sddm')
  lightdm_greeters=('lightdm-gtk-greeter' 'lightdm-webkit2-greeter')
  wms=('i3' 'i3-gaps' 'awesome' 'xmonad')
  terminales=('alacritty' 'konsole' 'kitty' 'yakuake' 'terminator')
- shells=('bash' 'zsh' 'ksh' 'fish')
+ shells=('zsh' 'ksh' 'fish')
  fms=('dolphin' 'konqueror' 'nautilus' 'krusader')
  navegadores=('firefox' 'vivaldi' 'chromium' 'opera' 'qutebrowser')
  ##FUNCIONES
+ error_handler () {
+   if [[ $? -eq 0 ]]
+   then
+     echo -e "${ok}"
+   else
+     echo -e "${error}"
+     read whaterver #borrar
+   fi
+ }
  allcaps () {
    input=$1
    input=${input^^}
@@ -62,7 +74,7 @@ EOF
  empty_lines () {
    clear
    echo ""
-   echo "--------------------------------------------------------------------------------------------------"
+   echo $ncols
  }
 discos_conectados () {
 		echo ""
@@ -134,11 +146,73 @@ fdisk_repair (){
 partition_list () {
   for disco in $discos
   do
-    echo "----${disco}"
-    partitions=$(lsblk -f $disco | tail +3 | cut -f1,2 -d' ')
+    if [[ $1 == "vfat" ]]
+    then
+      partitions=$(lsblk -f $disco | tail +3 | cut -f1,2 -d' ' | grep vfat)
+      if [[ $(echo $partitions | wc -l) -gt 0 ]]
+      then
+        echo "----${disco}"
+      fi
+    elif [[ $1 == "mpoint" ]]
+    then
+      partitions=$(lsblk -f $disco | tail +3 | tr -s " " | cut -f1,7 -d' ')
+      echo "----${disco}"
+    else
+      echo "----${disco}"
+      partitions=$(lsblk -f $disco | tail +3 | cut -f1,2 -d' ')
+    fi
     echo "$partitions"
     echo ""
   done
+}
+size_test () {
+  test_size=-1
+  until [[ $test_size -ge 0 ]]
+  do
+    echo ""
+    echo "Que tamaño quieres que tenga la particion."
+    echo "Introduce una cifra acompañada de la unidad (T)erabyte (G)igabyte (M)egabyte o (K)ilobyte o pulsa enter para utilizar el resto."
+    read psize
+    if [[ ! -z $psize ]]
+    then
+      if [[ ! $psize =~ ^[0-9]{1,5}[GMTK]{1}$ ]] || [[ $psize =~ ^0{1,5}[GMTK]{1}$ ]]
+      then
+        echo -e "${error} El tamaño no cumple los requisitos necesarios, debe ser un número de máximo 5 cifras y una letra MAYUSCULA."
+        echo "Por ej: 12345M"
+      else
+        sizeconver ${psize}
+        if [[ $q2 =~ [LX]{1} ]]
+        then
+          test_size=$(($extsize - $nsize))
+        else
+          test_size=$((${disk_array[${dn}]} - $nsize))
+        fi
+        if [[ $test_size -lt 0 ]]
+        then
+          echo -e "${error} Tamaño superior al espacio libre del disco."
+        else
+          opciones+=(+"$psize")
+        fi
+      fi
+    else
+      if [[ $q2 == E ]]
+      then
+        extsize=${disk_array[${dn}]}
+      fi
+      test_size=0
+      opciones+=('nbsp')
+      if [[ $ext == "False" ]]
+      then
+        full=True
+      fi
+    fi
+  done
+}
+invalid_opt () {
+  if [[ ! -z $q2 ]]
+  then
+    echo -e "${error} Introduce una opción valida."
+  fi
 }
 locales_list () {
   i=0
@@ -150,9 +224,27 @@ locales_list () {
     ((i=i+1))
   done
 }
+part_check () {
+  if [[ -z $1 ]] || [[ -z $(ls $1 2>/dev/null) ]] || [[ $1 == "/dev/" ]]
+  then
+    return 1
+  elif [[ ! $(echo $1 | rev | cut -c1) =~ [0-9]{1} ]]
+  then
+    return 2
+  fi
+  for disk in $(fdisk -l | grep "Disk /dev/" | cut -f2 -d" ")
+  do
+    if [[ ${1}: == $disk ]]
+    then
+      return 0
+    fi
+  done
+}
 pacman_func () {
   packages=$@
   arch-chroot /mnt pacman -S --noconfirm --needed $packages &>/dev/null
+  error_handler
+  sleep 1
 }
 install_package () {
   ipr1=""
@@ -161,7 +253,12 @@ install_package () {
   cstname=$1 && shift
   iarr=("$@")
   iarr+=('Otro')
-  iarr+=('Ninguno')
+  if [[ ${cstname} == "del shell" ]]
+  then
+    iarr+=('bash')
+  else
+    iarr+=('Ninguno')
+  fi
   while [[ -z $ipr1 ]] || [[ -z ${iarr[${ipr1}]} ]] || [[ ! -z $overflow ]]
   do
     if [[ ! -z $overflow ]]
@@ -193,24 +290,47 @@ install_package () {
       ipr2=$(allcaps $ipr2)
     done
     pacman_func "${ipr1}"
+  elif [[ $name == "un Gestor de AUR" ]]
+  then
+    if [[ ! $(arch-chroot /mnt pacman -Q git sudo) ]]
+    then
+      until [[ $gi =~ ^[SN]$ ]]
+      do
+        empty_lines
+        echo -e "${warn} Es necesario tener tanto git como sudo para instalar ${iarr[${ipr1}]}"
+        echo "Desea instalarlos? S/N"
+        read gi
+        gi=$(allcaps $gi)
+      done
+      if [[ $gi == S ]]
+      then
+        echo -n "Instalando paquetes "
+        pacman_func "git" "sudo"
+        echo -n "Instalando dependencias "
+        pacman_func "base-devel"
+      fi
+    fi
+    if [[ ! $gi == N ]]
+    then
+      echo -n "Instalando gestor AUR "
+      arch-chroot /mnt sh -c "cd /tmp && git clone https://aur.archlinux.org/${iarr[${ipr1}]}.git && echo 'nobody ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && usermod nobody -d /tmp/${iarr[${ipr1}]} -s /bin/bash && chown -R nobody:users ${iarr[${ipr1}]} && cd ${iarr[${ipr1}]} && su nobody -c 'makepkg -si --noconfirm' && usermod nobody -d / -s /usr/bin/nologin && grep -v nobody /etc/sudoers > /opt/sudoers.tmp && cat /opt/sudoers.tmp > /etc/sudoers" &>/dev/null
+      error_handler
+    fi
   elif [[ ! ${iarr[${ipr1}]} == "${iarr[-1]}" ]]
   then
     case ${iarr[${ipr1}]} in
     "xorg")
       echo -n "Instalando ${iarr[${ipr1}]} "
       pacman_func "xorg xorg-server"
-      echo -e "${ok}"
     ;;
     "plasma")
-      echo -n "Instalando ${iarr[${ipr1}]}"
+      echo -n "Instalando ${iarr[${ipr1}]} "
       pacman_func "plasma-desktop"
-      echo -e "${ok}"
     ;;
     "lightdm")
       ldm_gr=""
-      echo -n "Instalando ${iarr[${ipr1}]}"
+      echo -n "Instalando ${iarr[${ipr1}]} "
       pacman_func "lightdm"
-      echo -e "${ok}"
       while [[ -z ${lightdm_greeters[${ldm_gr}]} ]] || [[ -z $ldm_gr ]]
       do
         i=0
@@ -223,17 +343,16 @@ install_package () {
         done
         read ldm_gr
       done
-      echo -n "Instalando ${lightdm_greeters[${ldm_gr}]}"
+      echo -n "Instalando ${lightdm_greeters[${ldm_gr}]} "
       pacman_func "${lightdm_greeters[${ldm_gr}]}"
-      echo -e "${ok}"
       sed -i "s/#greeter-session=example-gtk-gnome/greeter-session=${lightdm_greeters[${ldm_gr}]}/g" /mnt/etc/lightdm/lightdm.conf
-      echo -e "${ok}"
-    ;;
-    "bash")
-      :
+      error_handler
     ;;
     "zsh")
-      until [[ $ohmyzsh == S ]] || [[ $ohmyzsh == N ]]
+      echo -n "Instalando ${iarr[${ipr1}]} "
+      pacman_func "zsh"
+      error_handler
+      until [[ $ohmyzsh =~ ^[SN]$ ]]
       do
         empty_lines
         echo "Desea insalar OhMyZSH? S/N"
@@ -242,30 +361,25 @@ install_package () {
       done
       if [[ $ohmyzsh == S ]]
       then
-        echo -n "Descargando OhMyZSH"
-        arch-chroot /mnt sh -c "$(curl $ohmyzshlink)" "" --unattended &>/dev/null
-        echo -e "${ok}"
-        echo -n "Cambiando shell predeterminada"
+        echo -n "Descargando OhMyZSH "
         if [[ -z $username ]]
         then
-          arch-chroot /mnt su root -c "chsh -s /usr/bin/zsh &>/dev/null"
+          arch-chroot /mnt sh -c "$(curl $ohmyzshlink) --unattended" &>/dev/null
         else
-          arch-chroot /mnt su $username -c "chsh -s /usr/bin/zsh &>/dev/null"
+          arch-chroot /mnt sh -c "curl $ohmyzshlink -o installer.sh && chmod +x installer.sh && su $username -c './installer.sh --unattended' && rm installer.sh" &>/dev/null
         fi
-        echo -e "${ok}"
+        error_handler
       fi
     ;;
     *)
       echo -n "Instalando ${iarr[${ipr1}]} "
       pacman_func "${iarr[${ipr1}]}"
-      echo -e "${ok}"
     ;;
     esac
   fi
 }
 
 #SCRIPT-----------------------------------
-
 if [[ -z $(uname -r | grep arch) ]] ##Elimina este if si sabes lo que haces y no tinenes arch
 then
   echo -e "${error} No estas utilizando Arch linux, no se puede seguir con la instalacion"
@@ -281,15 +395,41 @@ then
   echo -e "${error} No hay ningun disco conectado a la maquina"
  	exit
 fi
-discos_conectados
-echo "Selecciona como quieres particionar los discos."
 if [[ -z $ueficheck ]]
 then
   echo -e "${warn} Tienes un sistema UEFI, crea una particion de al menos 256M en el disco principal"
+  until [[ $plist =~ ^[MG]$ ]]
+  do
+    echo "¿Que tabla de particiones deseas usar? (M)BR o (G)PT"
+    echo "Tambien puedes usar ? para ver una breve descripción de ambas."
+    read plist
+    plist=$(allcaps $plist)
+    if [[ $plist == "?" ]]
+    then
+      echo "-----MBR-----"
+      echo "Tiene un numero maximo de 4 particiones, como maximo puede haber 4 primarias y 1 extendida"
+      echo "Dentro de la partición extendida podemos crear un maximo de 60 particiones logicas"
+      echo "Tamaño maximo de cada particion de 2TB"
+      echo "-----GPT-----"
+      echo "Tiene un numero maximo de 128 particiones principales"
+      echo "Tamaño maximo de cada particion 8ZiB"
+    fi
+  done
+else
+  plist="M"
 fi
+empty_lines
+if [[ $plist == "G" ]]
+then
+  echo -e "Continuando con GPT ${ok}"
+else
+  echo -e "Continuando con MBR ${ok}"
+fi
+discos_conectados
+echo "Selecciona como quieres particionar los discos."
 if [[ ! -z $dwarn ]]
 then
-  until [[ $dwarnr == S ]] || [[ $dwarnr == N ]]
+  until [[ $dwarnr =~ ^[SN]$ ]]
   do
     echo -e "${warn} Uno o mas discos conectados no son compatibles con BIOS. ¿Desea continuar? S/N"
     read dwarnr
@@ -334,7 +474,7 @@ do
     if [[ ! -z $comp ]]
     then
       format_disk=""
-      until [[ $format_disk == S ]] || [[ $format_disk == N ]]
+      until [[ $format_disk =~ ^[SN]$ ]]
       do
         empty_lines
         echo -e "${error} El disco no esta vacio, vacialo para particionarlo."
@@ -350,12 +490,20 @@ do
       mounted=$(mount -l | grep $disco | cut -f1 -d' ')
       if [[ ! -z $mounted ]]
       then
-        umount $mounted
+        tumount=$(umount $mounted)
+        if [[ ! -z $(echo $tumount | grep busy) ]]
+        then
+          echo -n "Forzando el desmontado del disco"
+          error_handler
+        fi
       fi
-      swapon=$(swapon | grep $disco | cut -f1 -d' ')
+      swapon=$(fdisk -l | grep swap | awk '{print $1}')
       if [[ ! -z $swapon ]]
       then
-        swapoff $swapon
+        for swapp in $swapon
+        do
+          swapoff $swapp &>/dev/null
+        done
       fi
       until [[ $disk_part == "S" ]]
       do
@@ -364,15 +512,16 @@ do
           disk_part=""
           prm=0
         	opciones=()
+          uefi_part=''
           sizeconver "$(lsblk $disco | head -n2 | tail -n1 | awk '{print $4}')"
           disk_array[${dn}]=$nsize
         fi
         printf "o\nw\n" | fdisk $disco &>/dev/null
   			ext=False
         full=False
-    		for i in $(seq 1 59)
+    		for i in $(seq 1 63)
         do
-          if [[ $full == "True" || ( ${disk_array[${dn}]} -eq 0 && ${extsize} -eq 0 )]]
+          if [[ $full == "True" || $plist == "G" || ( ${disk_array[${dn}]} -eq 0 && ${extsize} -eq 0 )]]
           then
             break
           fi
@@ -382,13 +531,10 @@ do
     			then
             if [[ $ext == True ]]
     				then
-    					until [[ $q2 == P ]] || [[ $q2 == L ]] || [[ $q2 == C ]] || [[ $q2 == F ]]
+    					until [[ $q2 =~ ^[PLCF]$ ]]
     	        do
-                clear
-                if [[ ! -z $q2 ]]
-                then
-                  echo -e "${error} Introduce una opción valida."
-                fi
+                empty_lines
+                invalid_opt
     						echo "----[${disco}] Restante: ${disk_array[${dn}]}M Extended: ${extsize}M"
     	          echo ""
     	          echo "Debes seleccionar un tipo de particion o cancelar la operacion."
@@ -408,13 +554,10 @@ do
                   fi
               done
     				else
-    					until [[ $q2 == P ]] || [[ $q2 == E ]] || [[ $q2 == C ]] || [[ $q2 == F ]]
+    					until [[ $q2 =~ ^[PECF]$ ]]
     	        do
-                clear
-                if [[ ! -z $q2 ]]
-                then
-                  echo -e "${error} Introduce una opción valida."
-                fi
+                empty_lines
+                invalid_opt
     	          echo "----[${disco}] Restante: ${disk_array[${dn}]}M"
     	          echo ""
     	          echo "Debes seleccionar un tipo de particion o cancelar la operacion."
@@ -437,9 +580,10 @@ do
   				else
   					if [[ $ext == True ]]
   					then
-  						until [[ $q2 == N ]] || [[ $q2 == F ]]
+  						until [[ $q2 =~ ^[NF]$ ]]
   						do
-                clear
+                empty_lines
+                invalid_opt
   							echo "----[${disco}] Extended: ${extsize}M"
   							echo ""
   							echo "Se han terminado de crear todas las particiones primarias."
@@ -486,55 +630,13 @@ do
     					opciones+=('nbsp')
             ;;
           esac
-          test_size=-1
-          until [[ $test_size -ge 0 ]]
-          do
-            echo ""
-    				echo "Que tamaño quieres que tenga la particion."
-    				echo "Introduce una cifra acompañada de la unidad (T)erabyte (G)igabyte (M)egabyte o (K)ilobyte o pulsa enter para utilizar el resto."
-    				read psize
-            if [[ ! -z $psize ]]
-            then
-              if [[ ! $psize =~ ^[0-9]{1,5}[GMTK]{1}$ ]] || [[ $psize =~ ^0{1,5}[GMTK]{1}$ ]]
-              then
-                echo -e "${error} El tamaño no cumple los requisitos necesarios, debe ser un número de máximo 5 cifras y una letra MAYUSCULA."
-                echo "Por ej: 12345M"
-              else
-                sizeconver ${psize}
-                if [[ $q2 == L ]] || [[ $q2 == X ]]
-                then
-                  test_size=$(($extsize - $nsize))
-                else
-                  test_size=$((${disk_array[${dn}]} - $nsize))
-                fi
-                if [[ $test_size -lt 0 ]]
-                then
-                  echo -e "${error} Tamaño superior al espacio libre del disco."
-                fi
-              fi
-            else
-              if [[ $q2 == E ]]
-              then
-                extsize=${disk_array[${dn}]}
-              fi
-              test_size=0
-            fi
-          done
-          if [[ -z $psize ]]
-          then
-            opciones+=('nbsp')
-            if [[ $ext == "False" ]]
-            then
-              full=True
-            fi
-          fi
+          size_test
           if [[ $q2 == E ]] && [[ ! -z $psize ]]
           then
             sizeconver $psize
             extsize=$nsize
           fi
-          opciones+=(+"$psize")
-          if [[ $q2 == L ]] || [[ $q2 == X ]]
+          if [[ $q2 =~ ^[LX]$ ]]
           then
             extsize=$test_size
           else
@@ -543,9 +645,9 @@ do
           if [[ ! $q2 == E ]]
           then
     				echo "¿Es una particion especial?"
-            if [[ -z $ueficheck ]]
+            if [[ -z $ueficheck ]] && [[ -z $uefi_part ]]
             then
-              until [[ $spc == S ]] || [[ $spc == U ]] || [[ $spc == N ]]
+              until [[ $spc =~ ^[SUN]$ ]]
       				do
                 if [[ ! -z $spc ]]
                 then
@@ -556,7 +658,7 @@ do
                 spc=$(allcaps $spc)
               done
             else
-              until [[ $spc == S ]] ||  [[ $spc == N ]]
+              until [[ $spc =~ ^[SN]$ ]]
       				do
                 if [[ ! -z $spc ]]
                 then
@@ -588,9 +690,84 @@ do
             esac
           fi
   	    done
+        if [[ $plist == "G" ]]
+        then
+          for i in $(seq 1 128)
+          do
+              q2=""
+              if [[ ${disk_array[${dn}]} -eq 0 ]]
+              then
+                break
+              fi
+              until [[ $q2 =~ ^[NFC]$ ]]
+              do
+                empty_lines
+                invalid_opt
+          	    echo "----[${disco}] Restante: ${disk_array[${dn}]}M"
+                echo "A continuacion se van a crear particiones primarias"
+                echo "(N)ueva, (F)inalizar o (C)ancelar"
+                read q2
+                q2=$(allcaps $q2)
+              done
+              case $q2 in
+                N)
+                  opciones+=('n')
+                  opciones+=('nbsp')
+                  opciones+=('nbsp')
+                  size_test
+                  spc="foo"
+                  until [[ $spc =~ ^[LSE]$ ]] || [[ -z $spc ]]
+                  do
+                    echo ""
+                    echo "Selecciona el tipo de particion"
+                    echo "(L)inux FileSystem (Por defecto)"
+                    echo "(S)wap"
+                    if [[ -z $uefi_part ]]
+                    then
+                      echo "(E)fi"
+                    fi
+                    read spc
+                    spc=$(allcaps $spc)
+                    if [[ -z $spc ]]
+                    then
+                      spc="L"
+                    elif [[ $spc == "E" ]] && [[ ! -z $uefi_part ]]
+                    then
+                      spc="Nope"
+                    fi
+                  done
+                  case $spc in
+                    L)
+                      opciones+=('nbsp')
+                    ;;
+                    S)
+                      opciones+=('8200')
+                    ;;
+                    E)
+                      uefi_part="True"
+                      opciones+=('ef00')
+                    ;;
+                  esac
+                  disk_array[${dn}]=$test_size
+                ;;
+                F)
+                  break
+                ;;
+                C)
+                  break
+                ;;
+              esac
+          done
+        fi
   			if [[ ! $q2 == C ]]
   			then
-          opciones+=("w")
+          if [[ $plist == "M" ]]
+          then
+            opciones+=("w")
+          else
+            opciones+=('w')
+            opciones+=('Y')
+          fi
   				name=$(printf "$disco" | awk -F'/' '{print $3}')
   	      touch /tmp/disk${name}.tmp
   	      for opt in "${opciones[@]}"
@@ -602,15 +779,21 @@ do
   	         	printf "$opt\n" >> /tmp/disk${name}.tmp
   					fi
           done
-  				fdisk /dev/${name} < /tmp/disk${name}.tmp &>/dev/null
+          if [[ $plist == M ]]
+          then
+  				      fdisk /dev/${name} < /tmp/disk${name}.tmp &>/dev/null
+          elif [[ $plist == G ]]
+          then
+                gdisk /dev/${name} < /tmp/disk${name}.tmp &>/dev/null
+          fi
           rm /tmp/disk${name}.tmp
   			fi
-        until [[ $disk_part == "S" ]] || [[ $disk_part == "N" ]]
+        until [[ $disk_part =~ ^[SN]$ ]]
         do
           empty_lines
           echo $disco
           particiones=$(lsblk $disco | tail +3 | sed -r 's/[ ]+/-/g' | cut -f1,4 -d'-')
-          if [[ -z $(echo $particiones | wc -w) ]]
+          if [[ $(echo $particiones | wc -w) -eq 0 ]]
           then
             echo ""
             echo "No has creado ninguna particion, ¿quieres continuar? S/N"
@@ -633,12 +816,34 @@ do
   ((dn=dn+1))
 done
 empty_lines
+if [[ -z $(fdisk -l | grep "Device") ]]
+then
+  echo -e "${error} No has creado ninguna particion"
+  echo ""
+  sleep 2
+  exit 1
+fi
 echo "Se han acabado de particionar los discos, ahora es necesario formatearlos."
 echo ""
 eswap=$(fdisk -l | grep swap | awk '{print $1}')
-if [[ $uefi_part == "True" ]]
+uefipart=$(fdisk -l | grep EFI | cut -f1 -d" ")
+if [[ $(echo $uefipart | wc -w) = 1 ]]
 then
-  uefipart=$(fdisk -l | grep ef | cut -f1 -d " ")
+  mkfs.fat -F 32 ${uefipart} &>/dev/null
+elif [[ $(echo $uefipart | wc -w) > 1 ]]
+then
+  until [[ $uefipartq > 0 ]] && [[ $uefipartq < $i ]]
+  do
+    echo "Selecciona la particion UEFI:"
+    i=1
+    for part in $uefipart
+    do
+      echo "$i.${part}"
+      ((i=i+1))
+    done
+    read uefipartq
+  done
+  uefipart=$(echo $uefipart | cut -f${uefipartq} -d" ")
   mkfs.fat -F 32 ${uefipart} &>/dev/null
 fi
 if [[ -z $eswap ]]
@@ -647,7 +852,7 @@ then
 	echo "¿Quieres convertir una particion existente en SWAP? S/N"
 	read q3
   q3=$(allcaps $q3)
-	until  [[ $q3 == N ]] || [[ $q3 == S ]]
+	until  [[ $q3 =~ ^[NS]$ ]]
 	do
 		echo -e "${error}${q3} no es un valor valido, introduce S o N"
 		read q3
@@ -662,12 +867,12 @@ then
 		do
 			echo "Introduzca una particion para convertir en swap o (C)ancelar"
 			read q4
-      if [[ $q4 == C ]] || [[ $q4 == c ]]
+      if [[ $q4 =~ ^[Cc]$ ]]
       then
         break 1
       fi
 		done
-    if [[ ! $q4 == c ]] || [[ ! $q4 == C ]]
+    if [[ ! $q4 =~ ^[Cc]$ ]]
       then
   		spart=$(printf $q4 | rev | cut -c 1)
   		printf "t\n${spart}\n82\nw\n" > /tmp/swap.txt
@@ -677,60 +882,81 @@ then
     fi
 	fi
 fi
+for swapp in ${eswap[*]}
+do
+  mkswap $swapp &>/dev/null
+  swapon $swapp &>/dev/null
+done
 until [[ $q7 == N ]]
 do
-  clear
 	q5=""
   q7=""
-	until [[ $q5 == f ]] || [[ $q5 == F ]]
+	until [[ $q5 =~ ^[fF]$ ]]
 	do
+    empty_lines
+    echo ""
   	echo "---------------Particiones"
-  	for disco in $discos
-  	do
-			echo ""
-			echo "--$disco"
-    	particiones=$(lsblk $disco | tail +3 | sed -r 's/[ ]+/-/g' | cut -f1,4 -d'-')
-    	for line in $particiones
-    	do
-				echo "$line"
-			done
-		done
+  	partition_list
     echo ""
 		echo "Introduce una particion para formatear o (F)in"
-		read q5
-		clear
-		if [[ ! $q5 == f ]] || [[ ! $q5 == F ]]
+		read q5 overflow
+		empty_lines
+		if [[ ! $q5 =~ ^[fF]$ ]]
 		then
-			fcomp=$(fdisk -l /dev/${q5} 2>/dev/null)
-			if [[ -z $fcomp ]]
+      part_check /dev/${q5}
+			fcomp=$?
+			if [[ $fcomp -ne 0 ]]
 			then
 				echo -e "${error} ${q5} no es una particion valida"
-			elif [[ /dev/$q5 == "$eswap" ]]
+        sleep 2
+      elif [[ -z $q5 ]]
+      then
+        :
+			elif [[ ${eswap[*]} =~ /dev/$q5 ]]
 			then
-				echo ""
 				echo -e "${error} ${q5} no se puede formatear (es la particion de SWAP)"
-				echo ""
+				sleep 2
       elif [[ /dev/$q5 == "$uefipart" ]]
       then
-        echo ""
 				echo -e "${error} ${q5} no se puede formatear (es la particion de UEFI)"
-				echo ""
+				sleep 2
 			else
-					echo "Que formato quieres darle a /dev/${q5}"
-					echo "(e)xt4, (f)at32 o (c)ancelar"
-					read q6
+        q6=""
+        until [[ $q6 =~ ^[EFBXC]$ ]]
+        do
+          empty_lines
+          echo "Que formato quieres darle a /dev/${q5}"
+				  echo "(e)xt4, (f)at32, (b)trfs, e(x)fat o (c)ancelar"
+				  read q6
           q6=$(allcaps $q6)
-					if [[ $q6 == E ]]
-					then
-						mkfs.ext4 -F /dev/${q5} &>/dev/null
-					elif [[ $q6 == F ]]
-					then
-						mkfs.fat -F 32 /dev/${q5} &>/dev/null
-					fi
+        done
+        if [[ ! $q6 == C ]]
+        then
+          echo -n "Formateando "
+        fi
+				if [[ $q6 == E ]]
+				then
+					mkfs.ext4 /dev/${q5} &>/dev/null
+          error_handler
+				elif [[ $q6 == F ]]
+				then
+					mkfs.fat -F 32 /dev/${q5} &>/dev/null
+          error_handler
+        elif [[ $q6 == B ]]
+        then
+          mkfs.bfs /dev/${q5} &>/dev/null
+          error_handler
+        elif [[ $q6 == X ]]
+        then
+          mkfs.exfat /dev/${q5} &>/dev/null
+          error_handler
+				fi
 			fi
+      sleep .5
+      empty_lines
 		fi
 	done
-  until [[ $q7 == S ]] || [[ $q7 == N ]]
+  until [[ $q7 =~ ^[SN]$ ]]
   do
   	empty_lines
   	echo "Se han terminado de fomatear las particiones"
@@ -742,8 +968,6 @@ do
     q7=$(allcaps $q7)
   done
 done
-mkswap $eswap
-swapon $eswap
 while [[ -z $rcomp ]]
 do
   empty_lines
@@ -752,65 +976,96 @@ do
   partition_list
   echo ""
   echo "Introduzca la particion root (/)"
-  read rootp
-  rcomp=$(fdisk -l /dev/${rootp} 2>/dev/null)
-  if [[ -z $rcomp ]] || [[ "/dev/${rootp}" == "${eswap}" ]] || [[ "/dev/${rootp}" == "${uefipart}" ]]
+  read rootp overflow
+  part_check /dev/${rootp}
+  rcomp=$?
+  if [[ $rcomp -ne 0 ]] || [[ ${eswap[*]} =~ /dev/$rootp ]] || [[ "/dev/${rootp}" == "${uefipart}" ]]
   then
     rcomp=""
     echo -e "${error} ${rootp} no es una particion valida"
     sleep 2
   fi
-  if [[ -z $(lsblk -f /dev/${rootp} | tail +2 | cut -f2 -d' ') ]]
-  then
-    mkfs.ext4 -F /dev/${rootp} &>/dev/null
-  fi
+  mkfs.ext4 -F /dev/${rootp} &>/dev/null
 done
 mount /dev/${rootp} /mnt 2>/dev/null
 pacstrap_install='foo'
+x="False"
 until [[ -z $pacstrap_install ]]
 do
   clear
   echo -n "Instalando kernel "
-  pacstrap_install=$(pacstrap /mnt "${basepack[@]}" 1>/dev/null)
+  pacstrap_install=$(pacstrap /mnt "${basepack[@]}" 2>&1 1>/dev/null)
   if [[ ! -z $(echo $pacstrap_install | grep full) ]]
   then
-    echo "La particion que se ha seleccionado como root es muy pequeña, vuelva a crear las particiones y deje mas tamaño para la particion root"
+    echo -e $error
+    echo "La particion que se ha seleccionado como root es muy pequeña."
+    echo "Vuelva a crear las particiones y deje mas tamaño para la particion root"
     exit
+  elif [[ ! -z $pacstrap_install ]]
+  then
+    if [[ $(echo $pacstrap_install | grep "is unknown trust error") ]]
+    then
+      echo -e $warn
+      echo -n "Actualizando certificados "
+      pacman -Sy &>/dev/null
+      pacman -S --noconfirm archlinux-keyring &>/dev/null
+      error_handler
+      sleep 2
+    elif [[ $(echo $pacstrap_install | grep "reinstalling") ]] && [[ $x == "False" ]]
+    then
+      pacstrap_install=""
+      x="True"
+    else
+      echo -e "${error} Ha ocurrido el siguiente error"
+      echo $pacstrap_install
+      exit
+    fi
   fi
 done
-if [[ $uefi_part == "True" ]]
+error_handler
+echo -n "Actualizando certificados "
+arch-chroot /mnt pacman -S --noconfirm "archlinux-keyring" &>/dev/null
+error_handler
+echo -n "Actualizando paquetes base "
+arch-chroot /mnt pacman -Syu --noconfirm &>/dev/null
+error_handler
+if [[ ! -z $uefipart ]]
 then
-  mkdir /mnt/boot/efi
-  mount $uefipart /mnt/boot/efi
+  mkdir -p /mnt/boot/efi
+  mount $uefipart /mnt/boot/efi 2>/dev/null
 fi
-echo -e "${ok}"
 sleep 2
-until [[ $part == f ]] || [[ $part == F ]]
+until [[ $part =~ ^[fF]$ ]]
 do
   empty_lines
-  if [[ $part == l ]] || [[ $part == L ]]
+  if [[ $part =~ ^[lL]$ ]]
   then
-    partition_list
+    partition_list mpoint
   fi
   echo "Introduzca los puntos de montaje de la siguiente manera:"
   echo "Ej: sda2 /boot/efi"
   echo "Utilize (F)in para no montar mas unidades o (L)iste las unidades."
   read part mpoint
-  if [[ $part == f ]] || [[ $part == F ]] || [[ $part == l ]] || [[ $part == L ]]
+  if [[ $part =~ ^[fFlL]$ ]]
   then
     :
   else
-    mcomp=$(fdisk -l /dev/${part} 2>/dev/null)
-    mpcheck=$(ls /mnt/$mpoint 2>/dev/null)
-    if [[ -z $part ]] || [[ -z $mcomp ]]
+    regex='^[\/]?([.]?[a-zA-Z][a-zA-Z0-9\-\_]*[\/]?)+$'
+    part_check /dev/${part}
+    mcomp=$?
+    if [[ -z $(echo $mpoint | grep '^/') ]]
     then
-      echo -e "${error} Tienes que introducir una particion"
+      mpoint=/$mpoint
+    fi
+    if [[ -z $part ]] || [[ $mcomp -ne 0 ]]
+    then
+      echo -e "${error} Tienes que introducir una particion valida"
       sleep 2
     elif [[ $part == "$rootp" ]]
     then
       echo -e "${error} No puedes montar la particion root"
       sleep 2
-    elif [[ /dev/${part} == "$eswap" ]]
+    elif [[ ${eswap[*]} =~ /dev/$part ]]
     then
       echo -e "${error} No puedes montar la particion swap"
       sleep 2
@@ -818,14 +1073,14 @@ do
     then
       echo -e "${error} No puedes montar la particion uefi"
       sleep 2
-    elif [[ -z $mpoint ]]
+    elif [[ -z $mpoint ]] || [[ ! $mpoint =~ $regex ]]
     then
       echo -e "${error} Tienes que introducir un punto de montaje"
       sleep 2
-    elif [[ -z $mpcheck ]]
+    elif [[ ! -d /mnt${mpoint} ]]
     then
       q8="foo"
-      until [[ $q8 == S ]] || [[ $q8 == N ]]
+      until [[ $q8 =~ ^[SN]$ ]]
       do
         echo -e "${error} No existe el punto de montaje, quieres crearlo? S/N"
         read q8
@@ -834,24 +1089,31 @@ do
       if [[ $q8 == S ]]
       then
         mkdir -p /mnt/$mpoint
-        mount /dev/${part} /mnt/$mpoint
+        mount /dev/$part /mnt/$mpoint
         echo -e "${ok} Se ha creado ${mpoint} y se ha montado ${part}."
         sleep 3
       fi
+    else
+      mount /dev/$part /mnt/$mpoint
     fi
   fi
 done
 clear
 echo -n "Generando fstab "
 genfstab -U /mnt >> /mnt/etc/fstab
-echo -e "${ok}"
+error_handler
 sleep 2
 until [[ $q9 == S ]]
 do
   hostname=''
-  while [[ -z $hostname ]]
+  while [[ -z $hostname ]] || [[ ! $hostname =~ ^[a-z][a-z0-9\-]{3,31} ]]
   do
     empty_lines
+    if [[ ! -z $hostname ]]
+    then
+      echo -e "${error} El nombre solo puede usar letras minusculas, numeros y _-"
+      echo "El nombre debe empezar por _ o letras minusculas"
+    fi
     echo "Cual es el nombre que va a tener este equipo"
     read hostname
   done
@@ -874,9 +1136,9 @@ do
     regiones=()
     empty_lines
     echo "Teclea el numero de la region en la que te encuentras"
-    echo ""
     for region in /mnt/usr/share/zoneinfo/*
     do
+      region=$(echo $region | cut -f6 -d"/")
       if [[ -f /mnt/usr/share/zoneinfo/$region ]] || [[ $region == Etc ]] || [[ $region == posix ]] || [[ $region == right ]] || [[ $region == SystemV ]]
       then
         :
@@ -887,7 +1149,12 @@ do
       fi
     done
     read regionq
-    regionf=${regiones[${regionq}]}
+    if [[ $ciudadq =~ ^[0-9] ]]
+    then
+     regionf=${regiones[${regionq}]}
+    else
+     regionf=''
+    fi
     if [[ -z $regionf ]]
     then
       echo -e "${error} No hay ninguna region con el numero ${regionq}"
@@ -908,14 +1175,13 @@ do
         echo -e "${error} No existe ninguna ciudad con esa letra."
       fi
       echo "Teclea la letra inicial de la ciudad en la que te encuentras"
-      echo ""
       read ciudadi
     done
     while [[ -z $ciudadq ]]
     do
+      i=0
       empty_lines
       echo "Teclea el numero de la ciudad en la que te encuentras"
-      echo ""
       for ciudad in /mnt/usr/share/zoneinfo/$regionf/${ciudadi^}*
       do
         ciudad=$(echo "${ciudad}" | cut -f7 -d'/')
@@ -923,16 +1189,26 @@ do
         ciudades+=("${ciudad}")
         ((i=i+1))
       done
+      echo "${i}.Ninguna"
+      ciudades+=("Ninguna")
       read ciudadq
-      ciudadf=${ciudades[${ciudadq}]}
+      if [[ $ciudadq =~ ^[0-9] ]]
+      then
+       ciudadf=${ciudades[${ciudadq}]}
+      else
+       ciudadf=''
+      fi
     done
     if [[ -z $ciudadf ]]
     then
       echo -e "${error} No hay ninguna ciudad con el numero ${ciudadq}"
       sleep 2
+    elif [[ $ciudadf == "Ninguna" ]]
+    then
+      ciudadf=''
     fi
   done
-  until [[ $q10 == S ]] || [[ $q10 == s ]] || [[ $q10 == N ]] || [[ $q10 == n ]]
+  until [[ $q10 =~ ^[SN]$ ]]
   do
     empty_lines
     echo "La ubicacion es:"
@@ -952,49 +1228,63 @@ until [[ $q11 == S ]]
 do
   q11=''
   nano /mnt/etc/locale.gen
-  until [[ $q11 == S ]] || [[ $q11 == N ]]
-  do
+  if [[ -z $(locales_list) ]]
+  then
     empty_lines
-    echo "Se van a instalar los siguientes locales:"
-    locales_list
-    echo ""
-    echo "Desea continuar? S/N"
-    read q11
-    q11=$(allcaps $q11)
-  done
+    echo -e "${error} No has seleccionado ningun idioma."
+    echo "Para seleccionarlo borra el # del idioma que quieras usar."
+    sleep 3
+  else
+    until [[ $q11 =~ ^[SN]$ ]]
+    do
+      empty_lines
+      echo "Se van a instalar los siguientes locales:"
+      locales_list
+      echo ""
+      echo "Desea continuar? S/N"
+      read q11
+      q11=$(allcaps $q11)
+    done
+  fi
 done
 clear
 echo -n "Generando locales "
 arch-chroot /mnt locale-gen &>/dev/null
-echo -e "${ok}"
+error_handler
 sleep 1
-until [[ $q12 == S ]]
-do
-  langf=''
-  q12=''
-  lang=''
-  while [[ -z $lang ]]
+if [[ -z ${locales[1]} ]]
+then
+  langf=${locales[0]}
+else
+  until [[ $q12 == S ]]
   do
+    langf=''
+    q12=''
+    lang=''
+    while [[ -z $lang ]]
+    do
+      empty_lines
+      echo "Cual va a ser el idioma del sistema operativo:"
+      locales_list
+      read lang
+      langf=${locales[${lang}]}
+      if [[ -z $langf ]]
+      then
+        echo -e "${error} No existe ningun idioma con el numero ${lang}"
+        sleep 2
+      fi
+    done
     empty_lines
-    echo "Cual va a ser el idioma del sistema operativo:"
-    locales_list
-    read lang
-    langf=${locales[${lang}]}
-    if [[ -z $langf ]]
-    then
-      echo -e "${error} No existe ningun idioma con el numero ${lang}"
-      sleep 2
-    fi
+    echo "Se va a asignar [${langf}] como idioma principal"
+    echo "Desea continuar? S/N"
+    read q12
+    q12=$(allcaps $q12)
   done
-  empty_lines
-  echo "Se va a asignar [${langf}] como idioma principal"
-  echo "Desea continuar? S/N"
-  read q12
-  q12=$(allcaps $q12)
-done
+fi
 echo "LANG=${langf}" > /mnt/etc/locale.conf
 until [[ $q13 == S ]]
 do
+  q13=''
   keymap='foo'
   until [[ -z $keymap ]] || [[ ! -z $(arch-chroot /mnt localectl list-keymaps | grep ${keymap} 2>/dev/null) ]]
   do
@@ -1009,9 +1299,9 @@ do
   done
   if [[ -z $keymap ]]
   then
-    keymap=us
+    keymap="us"
   fi
-  until [[ $q13 == N ]] || [[ $q13 == S ]]
+  until [[ $q13 =~ ^[NS]$ ]]
   do
     empty_lines
     echo "Se va a instalar el siguiente layout"
@@ -1022,7 +1312,7 @@ do
   done
 done
 echo "KEYMAP=${keymap}" > /mnt/etc/vconsole.conf
-until [[ $q14 == N ]] || [[ $q14 == S ]]
+until [[ $q14 =~ ^[NS]$ ]]
 do
   empty_lines
   echo "Quieres crear un usuario nuevo? S/N"
@@ -1031,17 +1321,31 @@ do
 done
 if [[ $q14 == S ]]
 then
-  while [[ $username == root ]] || [[ -z $username ]]
+  name_length="False"
+  while [[ $username == root ]] || [[ -z $username ]] || [[ $valid_name == "False" ]]
   do
     empty_lines
     echo "Como va a llamarse?"
     read username
+    username=${username,,}
+    if [[ $username =~ ^[a-z\_][a-z0-9\_\-]{3,31} ]]
+    then
+      valid_name="True"
+    else
+      valid_name="False"
+    fi
+    if [[ $valid_name == "False" ]]
+    then
+      echo -e "${error} La longitud del nombre de usuario debe estar entre 3 y 32 caracteres."
+      echo "El nombre debe empezar por una letra minuscula o _ y solo puede contener letras, numeros y -_"
+      sleep 3
+    fi
   done
   echo -n "Creando usuario "
-  arch-chroot /mnt useradd $username
-  echo -e "${ok}"
+  arch-chroot /mnt useradd $username &>/dev/null
+  error_handler
   echo -n "Creando directorio home de ${username} "
-  if [[ -z $(ls /mnt/home/$username 2>/dev/null) ]]
+  if [[ ! -d /mnt/home/$username ]]
   then
     arch-chroot /mnt mkdir /home/$username
     echo -e "${ok}"
@@ -1050,14 +1354,24 @@ then
   fi
   echo -n "Cambiando los permisos "
   arch-chroot /mnt chown -R $username:$username /home/$username
-  echo -e "${ok}"
+  error_handler
   arch-chroot /mnt passwd ${username}
+  until [[ $? -eq 0 ]]
+  do
+    echo -e "${error} Las contraseñas no coinciden"
+    arch-chroot /mnt passwd ${username}
+  done
 fi
 empty_lines
 echo "Asigna una clave al usuario root"
 arch-chroot /mnt passwd root
+until [[ $? -eq 0 ]]
+do
+  echo -e "${error} Las contraseñas no coinciden"
+  arch-chroot /mnt passwd root
+done
 echo "127.0.0.1     localhost" > /mnt/etc/hosts && echo "::1      localhost" >> /mnt/etc/hosts && echo "127.0.1.1     ${hostname}.localdomain     ${hostname}" >> /mnt/etc/hosts
-until [[ $q15 == S ]] || [[ $q15 == N ]]
+until [[ $q15 =~ ^[NS]$ ]]
 do
   empty_lines
   echo "A continuacion se van a instalar las siguientes dependencias:"
@@ -1096,7 +1410,6 @@ then
     clear
     echo -n "Instalando todos los paquetes "
     pacman_func "${bichopack[@]}"
-    echo -e "${ok}"
   else
     for pq in $q16
     do
@@ -1107,7 +1420,6 @@ then
       else
         echo -n "Instalando ${target} "
         pacman_func "${target}"
-        echo -e "${ok}"
       fi
     done
   fi
@@ -1115,7 +1427,7 @@ then
 fi
 if [[ ! -z $(arch-chroot /mnt pacman -Q sudo 2>/dev/null) ]] && [[ ! -z $username ]]
 then
-  until [[ $q17 == N ]] || [[ $q17 == S ]]
+  until [[ $q17 =~ ^[NS]$ ]]
   do
     empty_lines
     echo "Se ha detectado que has instalado la utilidad sudo."
@@ -1125,13 +1437,13 @@ then
   done
   if [[ $q17 == S ]]
   then
-    echo "${username} ALL=(ALL) NOPASSWD: ALL" >> /mnt/etc/sudoers
+    echo "${username} ALL=(ALL) ALL" >> /mnt/etc/sudoers
   fi
 fi
 gpuinfo=$(lspci | grep VGA | grep NVIDIA)
 if [[ ! -z $gpuinfo ]]
 then
-  until [[ $q18 == N ]] || [[ $q18 == S ]]
+  until [[ $q18 =~ ^[NS]$ ]]
   do
     empty_lines
     echo -e "${warn} Se ha detectado que tu tarjeta grafica es NVIDIA, deseas instalar los drivers de NVIDIA? S/N"
@@ -1144,47 +1456,74 @@ then
     echo -e "${ok} Se han instalado los drivers de NVIDIA"
   fi
 fi
-while [[ -z $gcomp ]]
+biosv="efi"
+until [[ ( $biosv == "bios" && $gcomp -eq 2 ) || ( ! -z $grubd && $biosv == "efi" ) ]]
 do
   if [[ ! -z $ueficheck ]]
   then
-    biosv="True"
+    biosv="bios"
+  else
+    if [[ ! -z $(lsblk -f | grep vfat) ]]
+    then
+      :
+    elif [[ -z $(lsblk -f | grep vfat) ]] && [[ -z $(ls /dev/nvme*) ]]
+    then
+      biosv="bios"
+    else
+      until [[ $nouefi == "C" ]]
+      do
+        if [[ $nouefi == "S" ]]
+        then
+          exit 1
+        fi
+        empty_lines
+        echo -e "${error} No se ha encontrado ninguna particion uefi."
+        echo "Se va a continuar con la instalacion en modo BIOS, es posible que uno o varios discos no sean detectados correctamente."
+        echo "(C)ontinuar o (S)alir"
+        read nouefi
+        nouefi=$(allcaps $nouefi)
+      done
+      biosv="bios"
+    fi
   fi
-  if [[ $biosv == True ]]
+  empty_lines
+  if [[ $biosv == "bios" ]]
   then
-    empty_lines
     echo "A continuacion se va a descargar e instalar grub, seleccione el DISCO de arranque"
     discos_conectados
     read grubd
-    gcomp=$(fdisk -l ${grubd} 2>/dev/null)
+    part_check ${grubd}
+    gcomp=$?
   else
-    empty_lines
-    echo "A continuacion se va a descargar e instalar grub, seleccion la particion UEFI"
-    partition_list
-    read grubd
-    gcomp=$(fdisk -l /dev/${grubd} 2>/dev/null)
+    if [[ $(lsblk -f | grep vfat | wc -l) -gt 1 ]]
+    then
+      echo "A continuacion se va a descargar e instalar grub, seleccione la particion UEFI"
+      partition_list vfat
+      read grubd
+    else
+      grubd=$(lsblk -f | grep vfat | cut -f1 -d" " | cut -c7-)
+    fi
+    grubd=$(lsblk -f /dev/${grubd} | grep vfat 2>/dev/null)
   fi
 done
 echo -n "Descargando GRUB "
 pacman_func "grub"
-echo -e "${ok}"
-if [[ $biosv == True ]]
+if [[ $biosv == "bios" ]]
 then
   echo -n "Instalando GRUB "
-  arch-chroot /mnt grub-install --target=i386-pc "${grubd}" &>/dev/null
+  arch-chroot /mnt grub-install --target=i386-pc ${grubd} &>/dev/null
 else
   echo -n "Descargando efibootmgr "
   pacman_func "efibootmgr"
-  echo -e "${ok}"
   echo -n "Instalando GRUB "
   arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB &>/dev/null
 fi
-echo -e "${ok}"
+error_handler
 echo -n "Generando el archivo de configuracion de grub "
 arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg &>/dev/null
-echo -e "${ok}"
+error_handler
 sleep 2
-until [[ $q19 == N ]] || [[ $q19 == S ]]
+until [[ $q19 =~ ^[NS]$ ]]
 do
   empty_lines
   echo "Por ultimo vamos a instalar el entorno grafico"
@@ -1203,24 +1542,66 @@ then
   sleep 3
   exit
 fi
+empty_lines
+until [[ $q20 =~ ^[NS]$ ]]
+do
+  echo "Quieres instalar un gestor de paquetes AUR? S/N"
+  read q20
+  q20=$(allcaps $q20)
+done
+if [[ $q20 == S ]]
+then
+  install_package "un Gestor de AUR" "del gestor de AUR" "${aurpackages[@]}"
+fi
 install_package "un Display Server" "del display server" "${displayservers[@]}"
 install_package "un Escritorio" "del escritorio" "${desktops[@]}"
 install_package "un Display Manager" "del display manager" "${dms[@]}"
 arch-chroot /mnt systemctl enable ${iarr[${ipr1}]}
-install_package "un Window Manager" "del window manager" "${wms[@]}"
+if [[ ${iarr[${ipr1}]} == "Ninguno" ]]
+then
+  install_package "un Window Manager" "del window manager" "${wms[@]}"
+fi
+wm=${iarr[${ipr1}]}
 install_package "un Terminal" "del terminal" "${terminales[@]}"
-install_package "un Shell" "del shell" "${shells[@]}"
-sudo chsh -s /mnt/usr/bin/${iarr[${ipr1}]}
+terminal=${iarr[${ipr1}]}
+install_package "un Shell, el shell por defecto es bash" "del shell" "${shells[@]}"
+echo -n "Cambiando shell"
+if [[ -z $username ]]
+then
+  arch-chroot /mnt usermod root -s /usr/bin/${iarr[${ipr1}]} &>/dev/null
+else
+  arch-chroot /mnt usermod $username -s /usr/bin/${iarr[${ipr1}]} &>/dev/null
+fi
+error_handler
 install_package "un File Manager" "del File Manager" "${fms[@]}"
 install_package "un Navegador" "del navegador" "${navegadores[@]}"
 if [[ ! -z $(arch-chroot /mnt pacman -Q dhcpcd 2>/dev/null) ]]
 then
   echo -n "Activando configuracion de red "
   arch-chroot /mnt systemctl enable dhcpcd &>/dev/null
-  echo -e "${ok}"
+  error_handler
+fi
+if [[ ! $wm == "Ninguno" ]]
+then
+  echo -n "Cambiando el terminal por defecto "
+  if [[ -z $username ]]
+  then
+    echo ""
+  else
+    case $wm in
+      awesome)
+        arch-chroot /mnt mkdir /home/$username/.config/awesome && printf "terminal = \"${terminal}\" " >> /home/$username/.config/awesome/rc.lua
+      ;;
+      xmonad)
+        arch-chroot /mnt mkdir /home/$username/.config/xmonad && printf "import XMonad\n main = xmonad def\n { terminal = \"${terminal}\"\n}" >> /home/$username/.config/xmonad/xmonad.hs
+      ;;
+    esac
+    error_handler
+  fi
 fi
 if [[ ! -z $(arch-chroot /mnt pacman -Q networkmanager 2>/dev/null) ]]
 then
+  echo -n "Habilitando NetworkManager "
   arch-chroot /mnt systemctl enable NetworkManager &>/dev/null
   if [[ ! -z $(arch-chroot /mnt pacman -Q plasma-desktop 2>/dev/null) ]]
   then
@@ -1228,7 +1609,7 @@ then
   else
     pacman_func network-manager-applet
   fi
-  sleep 2
+  sleep 1
 fi
 empty_lines
 echo ""
@@ -1236,3 +1617,5 @@ echo "GRACIAS POR UTILIZAR ARCH GUIDE-INSTALL BY CONFUGIRADORES®"
 echo ""
 echo "--------------------------------------------------------------------------------------------------"
 echo "Visita www.confugiradores.es para mas scripts, proyectos y tutoriales."
+sleep 3
+poweroff
